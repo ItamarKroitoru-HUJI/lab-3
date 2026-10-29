@@ -37,6 +37,13 @@ const FREEZE_MS = 3000;
 const MAGNET_MS = 4000;
 const MAGNET_RANGE = 200;
 const MAGNET_SPEED = 200;
+const ZIGZAG_COLOR = 0xc6ff00;
+const ZIGZAG_SIZE = 22;
+const ZIGZAG_TURN_MS = 1500;           // play time between random heading changes
+const BIG_COLOR = 0xb71c1c;
+const BIG_SIZE = 44;
+const BIG_SPEED_FACTOR = 0.5;          // big drone speed as a share of the current drone speed
+const BIG_SPAWN_MS = 20000;            // play time before the big drone appears (once per round)
 const POWERUPS = {
   S: { name: 'Shield!', color: 0x69f0ae },
   B: { name: 'Speed!', color: 0xffab40 },
@@ -78,6 +85,8 @@ class CoinDash extends Phaser.Scene {
     this.freezeMs = 0;
     this.frozen = [];        // { d, vx, vy } saved drone velocities while frozen
     this.magnetMs = 0;
+    this.playMs = 0;         // play time this round (delta), for the big drone spawn
+    this.bigSpawned = false;
     this.physics.world.setBounds(0, 44, c.width, c.height - 44);
     this.add.grid(c.width / 2, c.height / 2, c.width, c.height, 40, 40,
       c.colors.background, 1, 0x2a1f5c, 0.5);
@@ -111,6 +120,7 @@ class CoinDash extends Phaser.Scene {
     this.chaser = this.add.rectangle(c.width - 60, c.height - 60, 26, 26, CHASER_COLOR);
     this.drones.add(this.chaser);
     this.chaser.body.setCollideWorldBounds(true);
+    this.spawnSpecialDrone('zigzag');
     this.physics.add.overlap(this.player, this.coin, () => {
       if (this.finished) return;
       const combo = this.comboMs > 0;
@@ -383,6 +393,29 @@ class CoinDash extends Phaser.Scene {
     else drone.body.setVelocity(vx, vy);
   }
 
+  // kind: 'zigzag' (turns every ZIGZAG_TURN_MS) or 'big' (slow, large). Both are in this.drones.
+  spawnSpecialDrone(kind) {
+    const c = COIN_DASH;
+    const zig = kind === 'zigzag';
+    const size = zig ? ZIGZAG_SIZE : BIG_SIZE;
+    let x, y;
+    do {
+      x = Phaser.Math.Between(25, c.width - 25);
+      y = Phaser.Math.Between(70, c.height - 25);
+    } while (Phaser.Math.Distance.Between(x, y, this.player.x, this.player.y) < DRONE_SPAWN_MIN_DISTANCE);
+    const drone = this.add.rectangle(x, y, size, size, zig ? ZIGZAG_COLOR : BIG_COLOR);
+    this.drones.add(drone);
+    drone.body.setCollideWorldBounds(true).setBounce(1, 1);
+    drone.kind = kind;
+    drone.zigMs = 0;
+    const angle = Phaser.Math.FloatBetween(0, Math.PI * 2);
+    const speed = this.droneSpeedNow * (zig ? 1 : BIG_SPEED_FACTOR);
+    const vx = Math.cos(angle) * speed;
+    const vy = Math.sin(angle) * speed;
+    if (this.freezeMs > 0) this.frozen.push({ d: drone, vx, vy });
+    else drone.body.setVelocity(vx, vy);
+  }
+
   spawnPowerup(type) {
     const c = COIN_DASH;
     if (!type) type = Phaser.Utils.Array.GetRandom(Object.keys(POWERUPS));
@@ -465,7 +498,24 @@ class CoinDash extends Phaser.Scene {
     }
   }
 
-  updateDrones() {
+  updateDrones(delta) {
+    this.playMs += delta;
+    if (!this.bigSpawned && this.playMs >= BIG_SPAWN_MS) {
+      this.bigSpawned = true;
+      this.spawnSpecialDrone('big');
+    }
+    // Zigzag drones pick a new heading at the current drone speed; no turning (or timer) while frozen.
+    if (this.freezeMs <= 0) {
+      this.drones.getChildren().forEach((d) => {
+        if (d.kind !== 'zigzag') return;
+        d.zigMs += delta;
+        if (d.zigMs >= ZIGZAG_TURN_MS) {
+          d.zigMs -= ZIGZAG_TURN_MS;
+          const angle = Phaser.Math.FloatBetween(0, Math.PI * 2);
+          d.body.setVelocity(Math.cos(angle) * this.droneSpeedNow, Math.sin(angle) * this.droneSpeedNow);
+        }
+      });
+    }
     // Round time = total minus remaining, so paused time (deadline is shifted on resume) doesn't count.
     const elapsed = COIN_DASH.roundSeconds * 1000 - this.remainingMs();
     const level = Math.floor(elapsed / SPEEDUP_INTERVAL_MS);
@@ -489,7 +539,7 @@ class CoinDash extends Phaser.Scene {
 
   update(time, delta) {
     if (this.finished || this.paused || this.phase !== 'playing') return;
-    this.updateDrones();
+    this.updateDrones(delta);
     // update() only runs while playing and not paused, so this counts play time only.
     this.coinAgeMs += delta;
     if (this.coinAgeMs >= COIN_WANDER_MS) this.placeCoin(true);
