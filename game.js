@@ -15,6 +15,13 @@ const POWER_UPS = {
       d.body.setVelocity(0, 0);
     }),
     end: scene => scene.drones.getChildren().forEach(d => d.body.setVelocity(d.savedVelocity.x, d.savedVelocity.y))
+  },
+  shield: {
+    label: 'Shield',
+    // No seconds(): the shield lasts until it absorbs one drone hit.
+    shape: s => [s / 2, 0, s, s, 0, s],
+    start: scene => scene.player.setStrokeStyle(COIN_DASH.powerUps.shield.glowWidth, COIN_DASH.colors.shield),
+    end: scene => scene.player.setStrokeStyle()
   }
 };
 
@@ -59,7 +66,7 @@ class CoinDash extends Phaser.Scene {
       this.score++;
       this.placeCoin();
     });
-    this.physics.add.overlap(this.player, this.drones, () => this.finish('A drone caught you!'));
+    this.physics.add.overlap(this.player, this.drones, () => this.onDroneHit());
     this.createPowerUps();
     this.cursors = this.input.keyboard.createCursorKeys();
     this.keys = this.input.keyboard.addKeys('W,A,S,D,R');
@@ -81,6 +88,7 @@ class CoinDash extends Phaser.Scene {
   createPowerUps() {
     const c = COIN_DASH;
     this.effects = {}; // type -> time.now at which the effect ends
+    this.shieldGraceUntil = 0;
     this.pickup = null;
     this.pickups = this.physics.add.group();
     this.powerHud = this.add.text(c.width - 18, 22, '',
@@ -154,6 +162,16 @@ class CoinDash extends Phaser.Scene {
     const lines = [];
     for (let i = 0; i < labels.length; i += 2) lines.push(labels.slice(i, i + 2).join('   '));
     this.powerHud.setText(lines.join('\n'));
+  }
+
+  onDroneHit() {
+    if (this.time.now < this.shieldGraceUntil) return;
+    if (!this.effects.shield) { this.finish('A drone caught you!'); return; }
+    // The drone is still overlapping, so give a short grace window to get clear.
+    this.endEffect('shield');
+    this.shieldGraceUntil = this.time.now + COIN_DASH.powerUps.shield.graceSeconds * 1000;
+    this.player.setAlpha(0.5);
+    this.time.delayedCall(COIN_DASH.powerUps.shield.graceSeconds * 1000, () => this.player.setAlpha(1));
   }
 
   speedMultiplier() {
