@@ -90,6 +90,7 @@ class CoinDash extends Phaser.Scene {
     this.score = 0;
     this.bestScore = this.loadBestScore();
     this.finished = false;
+    this.pulse = null; // { shape, tween } of the running player pulse, if any
     this.paused = false;
     // 'start' (first load only) -> 'countdown' -> 'playing'. R restarts skip the start screen.
     this.phase = 'start';
@@ -169,6 +170,7 @@ class CoinDash extends Phaser.Scene {
       const combo = this.comboMs > 0;
       const points = (this.coinGold ? GOLD_COIN_POINTS : 1) * (combo ? 2 : 1);
       this.popText(this.coin.x, this.coin.y, `+${points}`, this.coinGold);
+      this.playCoinEffect(this.coin.x, this.coin.y);
       const before = this.score;
       this.score += points;
       // Spawn in update(), not here: don't add bodies in the middle of the physics step.
@@ -415,6 +417,27 @@ class CoinDash extends Phaser.Scene {
       targets: t, y: y - POPUP_RISE_PX, alpha: 0, duration: POPUP_MS,
       onComplete: () => t.destroy()
     });
+  }
+
+  // Visual only: plain shapes and tweens, no physics bodies. Default depth keeps it under the overlays.
+  playCoinEffect(x, y) {
+    const c = COIN_DASH, e = c.coinEffect;
+    const ring = this.add.circle(x, y, e.ringRadius).setStrokeStyle(e.ringStroke, c.colors.coin);
+    this.tweens.add({ targets: ring, scale: e.ringScale, alpha: 0, duration: e.ringMs,
+      ease: 'Cubic.easeOut', onComplete: () => ring.destroy() });
+    const flash = this.add.rectangle(c.width / 2, c.height / 2, c.width, c.height,
+      c.colors.coin, e.flashAlpha);
+    this.tweens.add({ targets: flash, alpha: 0, duration: e.flashMs,
+      onComplete: () => flash.destroy() });
+    // Pulse an outline, not the player: scaling the player would grow its arcade body.
+    if (this.pulse) { this.pulse.tween.stop(); this.pulse.shape.destroy(); }
+    const p = this.player;
+    const shape = this.add.rectangle(p.x, p.y, p.width, p.height)
+      .setStrokeStyle(e.pulseStroke, c.colors.player);
+    const tween = this.tweens.add({ targets: shape, scale: e.pulseScale, duration: e.pulseMs,
+      yoyo: true, ease: 'Sine.easeOut', onUpdate: () => shape.setPosition(p.x, p.y),
+      onComplete: () => { shape.destroy(); this.pulse = null; } });
+    this.pulse = { shape, tween };
   }
 
   // relocate=true moves the current coin (wander) without counting a new coin or changing its kind.
