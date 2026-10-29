@@ -9,6 +9,23 @@ const DRONE_SPAWN_MIN_DISTANCE = 150;  // new drones spawn at least this far fro
 const TOP_SCORES_KEY = 'coinDash.topScores';
 const START_LIVES = 3;
 const INVULN_MS = 1500;
+const POWERUP_INTERVAL_MS = 10000;     // play time between power-up spawns
+const POWERUP_LIFETIME_MS = 5000;      // an untaken power-up disappears after this long
+const POWERUP_MIN_DISTANCE = 80;       // power-ups spawn at least this far from the player
+const POWERUP_PICKUP_RADIUS = 24;
+const SHIELD_GRACE_MS = 800;           // brief invulnerability after a shield absorbs a hit
+const BOOST_FACTOR = 1.6;
+const BOOST_MS = 3000;
+const FREEZE_MS = 3000;
+const MAGNET_MS = 4000;
+const MAGNET_RANGE = 200;
+const MAGNET_SPEED = 200;
+const POWERUPS = {
+  S: { name: 'Shield!', color: 0x69f0ae },
+  B: { name: 'Speed!', color: 0xffab40 },
+  F: { name: 'Freeze!', color: 0x80d8ff },
+  M: { name: 'Magnet!', color: 0xff80ab }
+};
 class CoinDash extends Phaser.Scene {
   constructor() { super('CoinDash'); }
 
@@ -28,6 +45,13 @@ class CoinDash extends Phaser.Scene {
     this.invulnMs = 0; // counted down in update(), so pause freezes it
     this.streak = 0;
     this.longestStreak = 0;
+    this.powerupTimerMs = 0; // all power-up timers count down with delta in update()
+    this.powerup = null;     // { type, shape, label, ms } while one is on the field
+    this.shield = false;
+    this.boostMs = 0;
+    this.freezeMs = 0;
+    this.frozen = [];        // { d, vx, vy } saved drone velocities while frozen
+    this.magnetMs = 0;
     this.physics.world.setBounds(0, 44, c.width, c.height - 44);
     this.add.grid(c.width / 2, c.height / 2, c.width, c.height, 40, 40,
       c.colors.background, 1, 0x2a1f5c, 0.5);
@@ -151,6 +175,12 @@ class CoinDash extends Phaser.Scene {
 
   hitByDrone() {
     if (this.phase !== 'playing' || this.finished || this.paused || this.invulnMs > 0) return;
+    if (this.shield) {
+      this.shield = false;
+      this.player.setStrokeStyle();
+      this.invulnMs = SHIELD_GRACE_MS; // the overlap fires every frame; don't hit right after the shield pops
+      return;
+    }
     this.lives--;
     this.streak = 0;
     this.hitFeedback();
@@ -236,7 +266,92 @@ class CoinDash extends Phaser.Scene {
     this.drones.add(drone);
     drone.body.setCollideWorldBounds(true).setBounce(1, 1);
     const angle = Phaser.Math.FloatBetween(0, Math.PI * 2);
-    drone.body.setVelocity(Math.cos(angle) * this.droneSpeedNow, Math.sin(angle) * this.droneSpeedNow);
+    const vx = Math.cos(angle) * this.droneSpeedNow;
+    const vy = Math.sin(angle) * this.droneSpeedNow;
+    if (this.freezeMs > 0) this.frozen.push({ d: drone, vx, vy });
+    else drone.body.setVelocity(vx, vy);
+  }
+
+  spawnPowerup(type) {
+    const c = COIN_DASH;
+    if (!type) type = Phaser.Utils.Array.GetRandom(Object.keys(POWERUPS));
+    this.clearPowerup();
+    let x, y;
+    do {
+      x = Phaser.Math.Between(25, c.width - 25);
+      y = Phaser.Math.Between(70, c.height - 25);
+    } while (Phaser.Math.Distance.Between(x, y, this.player.x, this.player.y) < POWERUP_MIN_DISTANCE);
+    const shape = this.add.star(x, y, 5, 7, 14, POWERUPS[type].color).setStrokeStyle(2, 0xffffff);
+    const label = this.add.text(x, y, type, { font: 'bold 12px monospace', color: '#0a1120' }).setOrigin(0.5);
+    this.powerup = { type, shape, label, ms: POWERUP_LIFETIME_MS };
+  }
+
+  clearPowerup() {
+    if (!this.powerup) return;
+    this.powerup.shape.destroy();
+    this.powerup.label.destroy();
+    this.powerup = null;
+  }
+
+  collectPowerup(type) {
+    const p = POWERUPS[type];
+    if (type === 'S') {
+      this.shield = true;
+      this.player.setStrokeStyle(3, p.color);
+    } else if (type === 'B') {
+      this.boostMs = BOOST_MS;
+    } else if (type === 'F') {
+      if (this.freezeMs <= 0) {
+        this.frozen = [];
+        this.drones.getChildren().forEach((d) => {
+          if (d !== this.chaser) this.frozen.push({ d, vx: d.body.velocity.x, vy: d.body.velocity.y });
+          d.body.setVelocity(0, 0);
+        });
+      }
+      this.freezeMs = FREEZE_MS;
+    } else if (type === 'M') {
+      this.magnetMs = MAGNET_MS;
+    }
+    const text = this.add.text(this.player.x, this.player.y - 26, p.name,
+      { font: 'bold 18px monospace', color: '#' + p.color.toString(16).padStart(6, '0') }).setOrigin(0.5);
+    this.tweens.add({ targets: text, y: text.y - 30, alpha: 0, duration: 900, onComplete: () => text.destroy() });
+  }
+
+  updatePowerups(delta) {
+    this.powerupTimerMs += delta;
+    if (this.powerupTimerMs >= POWERUP_INTERVAL_MS) {
+      this.powerupTimerMs -= POWERUP_INTERVAL_MS;
+      this.spawnPowerup();
+    }
+    if (this.powerup) {
+      this.powerup.ms -= delta;
+      const near = Phaser.Math.Distance.Between(this.player.x, this.player.y,
+        this.powerup.shape.x, this.powerup.shape.y) < POWERUP_PICKUP_RADIUS;
+      if (near) {
+        const type = this.powerup.type;
+        this.clearPowerup();
+        this.collectPowerup(type);
+      } else if (this.powerup.ms <= 0) {
+        this.clearPowerup();
+      }
+    }
+    this.boostMs = Math.max(0, this.boostMs - delta);
+    this.magnetMs = Math.max(0, this.magnetMs - delta);
+    if (this.freezeMs > 0) {
+      this.freezeMs = Math.max(0, this.freezeMs - delta);
+      if (this.freezeMs === 0) {
+        this.frozen.forEach((f) => { if (f.d.body) f.d.body.setVelocity(f.vx, f.vy); });
+        this.frozen = [];
+      }
+    }
+    if (this.magnetMs > 0) {
+      const dist = Phaser.Math.Distance.Between(this.coin.x, this.coin.y, this.player.x, this.player.y);
+      if (dist < MAGNET_RANGE && dist > 1) {
+        const step = Math.min(dist, MAGNET_SPEED * delta / 1000);
+        this.coin.body.reset(this.coin.x + (this.player.x - this.coin.x) / dist * step,
+          this.coin.y + (this.player.y - this.coin.y) / dist * step);
+      }
+    }
   }
 
   updateDrones() {
@@ -249,6 +364,7 @@ class CoinDash extends Phaser.Scene {
       this.drones.getChildren().forEach((d) => {
         if (d !== this.chaser) d.body.velocity.scale(SPEEDUP_FACTOR);
       });
+      this.frozen.forEach((f) => { f.vx *= SPEEDUP_FACTOR; f.vy *= SPEEDUP_FACTOR; });
     }
     while (this.pendingDrones > 0) {
       this.pendingDrones--;
@@ -257,12 +373,13 @@ class CoinDash extends Phaser.Scene {
     // The chaser's velocity is recomputed every frame, so its speed follows droneSpeedNow.
     const toPlayer = new Phaser.Math.Vector2(this.player.x - this.chaser.x, this.player.y - this.chaser.y)
       .normalize().scale(this.droneSpeedNow * CHASER_SPEED_FACTOR);
-    this.chaser.body.setVelocity(toPlayer.x, toPlayer.y);
+    if (this.freezeMs <= 0) this.chaser.body.setVelocity(toPlayer.x, toPlayer.y);
   }
 
   update(time, delta) {
     if (this.finished || this.paused || this.phase !== 'playing') return;
     this.updateDrones();
+    this.updatePowerups(delta);
     if (this.invulnMs > 0) {
       this.invulnMs = Math.max(0, this.invulnMs - delta);
       this.player.setAlpha(this.invulnMs > 0 && Math.floor(this.invulnMs / 100) % 2 ? 0.25 : 1);
@@ -279,7 +396,7 @@ class CoinDash extends Phaser.Scene {
       const toY = pointer.worldY - this.player.y;
       if (Math.hypot(toX, toY) > 6) direction.set(toX, toY);
     }
-    direction.normalize().scale(COIN_DASH.playerSpeed);
+    direction.normalize().scale(COIN_DASH.playerSpeed * (this.boostMs > 0 ? BOOST_FACTOR : 1));
     this.player.body.setVelocity(direction.x, direction.y);
     if (dx !== 0 || dy !== 0) this.spawnTrail();
     const seconds = this.secondsLeft();
