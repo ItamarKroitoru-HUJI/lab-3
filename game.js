@@ -9,13 +9,15 @@ const DRONE_SPAWN_MIN_DISTANCE = 150;  // new drones spawn at least this far fro
 class CoinDash extends Phaser.Scene {
   constructor() { super('CoinDash'); }
 
-  create() {
+  create(data) {
     const c = COIN_DASH;
     this.score = 0;
     this.bestScore = this.loadBestScore();
     this.finished = false;
     this.paused = false;
-    this.deadline = this.time.now + c.roundSeconds * 1000;
+    // 'start' (first load only) -> 'countdown' -> 'playing'. R restarts skip the start screen.
+    this.phase = 'start';
+    this.deadline = null; // set when the countdown ends
     this.droneSpeedNow = c.droneSpeed;
     this.speedLevel = 0;
     this.pendingDrones = 0;
@@ -56,11 +58,59 @@ class CoinDash extends Phaser.Scene {
     });
     this.cursors = this.input.keyboard.createCursorKeys();
     this.keys = this.input.keyboard.addKeys('W,A,S,D,R');
-    this.input.keyboard.on('keydown-R', () => this.scene.restart());
+    this.input.keyboard.on('keydown-R', () => this.scene.restart({ skipStart: true }));
     // Registering the keys makes Phaser ignore held-key auto-repeat, so holding P won't flicker.
-    this.input.keyboard.addKeys('P,ESC');
+    this.input.keyboard.addKeys('P,ESC,SPACE');
     this.input.keyboard.on('keydown-P', () => this.togglePause());
     this.input.keyboard.on('keydown-ESC', () => this.togglePause());
+    this.input.keyboard.on('keydown-SPACE', () => {
+      if (this.phase === 'start') this.startCountdown();
+    });
+    this.updateHud(c.roundSeconds);
+    this.physics.pause(); // nothing moves until the countdown ends
+    if (data && data.skipStart) {
+      this.startCountdown();
+    } else {
+      this.startOverlay = [
+        this.add.rectangle(c.width / 2, c.height / 2, 460, 150, 0x0a1120, 0.95),
+        this.add.text(c.width / 2, c.height / 2, 'Coin Dash\nPress Space to start',
+          { font: '24px monospace', color: '#ffffff', align: 'center', lineSpacing: 12 }
+        ).setOrigin(0.5)
+      ];
+    }
+  }
+
+  startCountdown() {
+    const c = COIN_DASH;
+    this.phase = 'countdown';
+    if (this.startOverlay) {
+      this.startOverlay.forEach((o) => o.destroy());
+      this.startOverlay = null;
+    }
+    let n = 3;
+    const label = this.add.text(c.width / 2, c.height / 2, String(n),
+      { font: '96px monospace', color: '#ffffff', align: 'center' }).setOrigin(0.5);
+    this.time.addEvent({
+      delay: 1000,
+      repeat: 2,
+      callback: () => {
+        n--;
+        if (n > 0) {
+          label.setText(String(n));
+        } else {
+          label.destroy();
+          this.phase = 'playing';
+          this.deadline = this.time.now + c.roundSeconds * 1000;
+          this.physics.resume();
+        }
+      }
+    });
+  }
+
+  updateHud(seconds) {
+    const best = Math.max(this.bestScore, this.score);
+    this.hud.setText(`Coins: ${this.score}     Best: ${best}     Time: ${seconds}s`);
+    this.hud.setColor(seconds <= 10 ? '#ff657a' : '#ffffff');
   }
 
   hitFeedback() {
@@ -78,7 +128,7 @@ class CoinDash extends Phaser.Scene {
   }
 
   togglePause() {
-    if (this.finished) return;
+    if (this.finished || this.phase !== 'playing') return;
     const c = COIN_DASH;
     if (!this.paused) {
       this.paused = true;
@@ -163,7 +213,7 @@ class CoinDash extends Phaser.Scene {
   }
 
   update() {
-    if (this.finished || this.paused) return;
+    if (this.finished || this.paused || this.phase !== 'playing') return;
     this.updateDrones();
     const dx = Number(this.cursors.right.isDown || this.keys.D.isDown)
       - Number(this.cursors.left.isDown || this.keys.A.isDown);
@@ -181,8 +231,7 @@ class CoinDash extends Phaser.Scene {
     this.player.body.setVelocity(direction.x, direction.y);
     if (dx !== 0 || dy !== 0) this.spawnTrail();
     const seconds = Math.max(0, Math.ceil((this.deadline - this.time.now) / 1000));
-    const best = Math.max(this.bestScore, this.score);
-    this.hud.setText(`Coins: ${this.score}     Best: ${best}     Time: ${seconds}s`);
+    this.updateHud(seconds);
     if (seconds === 0) this.finish('Time is up!');
   }
 
