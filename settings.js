@@ -8,6 +8,7 @@ window.COIN_DASH = {
   droneCount: 3,
   colors: { background: 0x101c31, player: 0x71e8ce, coin: 0xffd166, drone: 0xff657a,
     goldCoin: 0xff9f1c, timeCoin: 0x4da3ff },
+  coinWanderMs: 4000,
   goldCoin: { every: 5, points: 3 },
   timeCoin: { seconds: 5, checkMs: 3000, chance: 0.35, lifeMs: 5000 },
   coinEffect: {

@@ -19,6 +19,7 @@ class CoinDash extends Phaser.Scene {
     this.physics.add.existing(this.coin);
     this.coin.body.setCircle(9);
     this.collected = 0;
+    this.wanderTimer = null;
     this.placeCoin();
     this.drones = this.physics.add.group();
     for (let i = 0; i < c.droneCount; i++) {
@@ -117,6 +118,10 @@ class CoinDash extends Phaser.Scene {
     this.coin.body.reset(x, y);
     this.coin.gold = (this.collected + 1) % c.goldCoin.every === 0;
     this.coin.setFillStyle(this.coin.gold ? c.colors.goldCoin : c.colors.coin);
+    if (this.wanderTimer) this.wanderTimer.remove();
+    this.wanderTimer = this.time.delayedCall(c.coinWanderMs, () => {
+      if (!this.finished) this.placeCoin();
+    });
   }
 
   update() {
