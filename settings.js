@@ -12,10 +12,11 @@ window.COIN_DASH = {
     lifetimeSeconds: 6,
     size: 16,
     minSpawnDistance: 150,
-    speed: { durationSeconds: 3, multiplier: 1.6 }
+    speed: { durationSeconds: 3, multiplier: 1.6 },
+    freeze: { durationSeconds: 3 }
   },
   colors: {
     background: 0x101c31, player: 0x71e8ce, coin: 0xffd166, drone: 0xff657a,
-    speed: 0x4ade80
+    speed: 0x4ade80, freeze: 0x9ad7ff
   }
 };

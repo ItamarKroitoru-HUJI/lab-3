@@ -5,8 +5,27 @@ const POWER_UPS = {
     label: 'Speed',
     seconds: () => COIN_DASH.powerUps.speed.durationSeconds,
     shape: s => [s / 2, 0, s, s / 2, s / 2, s, 0, s / 2]
+  },
+  freeze: {
+    label: 'Freeze',
+    seconds: () => COIN_DASH.powerUps.freeze.durationSeconds,
+    shape: s => regularPolygon(6, s),
+    start: scene => scene.drones.getChildren().forEach(d => {
+      d.savedVelocity = d.body.velocity.clone();
+      d.body.setVelocity(0, 0);
+    }),
+    end: scene => scene.drones.getChildren().forEach(d => d.body.setVelocity(d.savedVelocity.x, d.savedVelocity.y))
   }
 };
+
+function regularPolygon(sides, s) {
+  const points = [];
+  for (let i = 0; i < sides; i++) {
+    const a = -Math.PI / 2 + i * 2 * Math.PI / sides;
+    points.push(s / 2 + Math.cos(a) * s / 2, s / 2 + Math.sin(a) * s / 2);
+  }
+  return points;
+}
 
 class CoinDash extends Phaser.Scene {
   constructor() { super('CoinDash'); }
