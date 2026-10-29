@@ -43,6 +43,23 @@ const POWERUPS = {
   F: { name: 'Freeze!', color: 0x80d8ff },
   M: { name: 'Magnet!', color: 0xff80ab }
 };
+const ACHIEVEMENTS_KEY = 'coinDash.achievements';
+const ACHIEVEMENTS = {
+  first: 'First coin',
+  pts10: '10 points',
+  pts25: '25 points',
+  golden: 'Golden touch',
+  combo: 'Combo!',
+  power: 'Power player',
+  survivor: 'Survivor',
+  untouchable: 'Untouchable'
+};
+const POWER_PLAYER_COUNT = 3;          // power-ups collected in one round
+const SURVIVOR_MS = 30000;             // play time without losing a life
+const TOAST_SLIDE_MS = 250;
+const TOAST_HOLD_MS = 2000;
+const TOAST_FADE_MS = 400;
+const TOAST_MARGIN = 12;
 class CoinDash extends Phaser.Scene {
   constructor() { super('CoinDash'); }
 
@@ -78,6 +95,11 @@ class CoinDash extends Phaser.Scene {
     this.freezeMs = 0;
     this.frozen = [];        // { d, vx, vy } saved drone velocities while frozen
     this.magnetMs = 0;
+    this.unlocked = this.loadAchievements();
+    this.toastQueue = [];
+    this.toastActive = false;
+    this.powerupsTaken = 0;  // this round only
+    this.noHitMs = 0;        // play time since the last life lost
     this.physics.world.setBounds(0, 44, c.width, c.height - 44);
     this.add.grid(c.width / 2, c.height / 2, c.width, c.height, 40, 40,
       c.colors.background, 1, 0x2a1f5c, 0.5);
@@ -125,9 +147,14 @@ class CoinDash extends Phaser.Scene {
       this.streak++;
       this.longestStreak = Math.max(this.longestStreak, this.streak);
       this.comboMs = COMBO_WINDOW_MS;
+      this.unlock('first');
+      if (this.score >= 10) this.unlock('pts10');
+      if (this.score >= 25) this.unlock('pts25');
+      if (this.coinGold) this.unlock('golden');
       if (combo) {
         this.comboTextMs = COMBO_TEXT_MS;
         this.comboText.setVisible(true);
+        this.unlock('combo');
       }
       this.placeCoin();
     });
@@ -238,6 +265,7 @@ class CoinDash extends Phaser.Scene {
       return;
     }
     this.lives--;
+    this.noHitMs = 0;
     this.streak = 0;
     this.comboMs = 0;
     this.hitFeedback();
@@ -349,7 +377,56 @@ class CoinDash extends Phaser.Scene {
     this.timeCoinLifeMs = TIME_COIN_LIFETIME_MS;
   }
 
+  loadAchievements() {
+    try {
+      const list = JSON.parse(window.localStorage.getItem(ACHIEVEMENTS_KEY));
+      if (!Array.isArray(list)) return new Set();
+      return new Set(list.filter((id) => Object.prototype.hasOwnProperty.call(ACHIEVEMENTS, id)));
+    } catch (e) {
+      return new Set();
+    }
+  }
+
+  saveAchievements() {
+    try {
+      window.localStorage.setItem(ACHIEVEMENTS_KEY, JSON.stringify([...this.unlocked]));
+    } catch (e) { /* storage blocked or full: keep playing without persistence */ }
+  }
+
+  // Unlock by id; only the first unlock ever persists and shows a toast.
+  unlock(id) {
+    if (this.unlocked.has(id)) return;
+    this.unlocked.add(id);
+    this.saveAchievements();
+    this.toastQueue.push(`🏆 ${ACHIEVEMENTS[id]}`);
+    this.showNextToast();
+  }
+
+  // One toast at a time; tweens run on scene time, so the game never waits for them.
+  showNextToast() {
+    if (this.toastActive || this.toastQueue.length === 0) return;
+    this.toastActive = true;
+    const c = COIN_DASH;
+    const x = c.width - TOAST_MARGIN;
+    const toast = this.add.text(x + 40, c.height - TOAST_MARGIN, this.toastQueue.shift(), {
+      font: '16px monospace', color: '#ffffff', backgroundColor: '#0a1120', padding: { x: 10, y: 6 }
+    }).setOrigin(1, 1).setDepth(1000).setAlpha(0);
+    this.tweens.add({
+      targets: toast, x, alpha: 1, duration: TOAST_SLIDE_MS,
+      onComplete: () => this.tweens.add({
+        targets: toast, alpha: 0, delay: TOAST_HOLD_MS, duration: TOAST_FADE_MS,
+        onComplete: () => {
+          toast.destroy();
+          this.toastActive = false;
+          this.showNextToast();
+        }
+      })
+    });
+  }
+
   updateTimers(delta) {
+    this.noHitMs += delta;
+    if (this.noHitMs >= SURVIVOR_MS) this.unlock('survivor');
     this.comboMs = Math.max(0, this.comboMs - delta);
     if (this.comboTextMs > 0) {
       this.comboTextMs = Math.max(0, this.comboTextMs - delta);
@@ -406,6 +483,7 @@ class CoinDash extends Phaser.Scene {
 
   collectPowerup(type) {
     const p = POWERUPS[type];
+    if (++this.powerupsTaken >= POWER_PLAYER_COUNT) this.unlock('power');
     if (type === 'S') {
       this.shield = true;
       this.player.setStrokeStyle(3, p.color);
@@ -544,6 +622,7 @@ class CoinDash extends Phaser.Scene {
     this.physics.pause();
     this.player.setAlpha(1);
     const c = COIN_DASH;
+    if (this.lives === START_LIVES) this.unlock('untouchable'); // only the time-up path can end with full lives
     const isNewBest = this.score > this.loadBestScore();
     if (isNewBest) this.saveBestScore(this.score);
     // The deadline shifts on resume, so remaining time excludes any paused time.
@@ -562,7 +641,7 @@ class CoinDash extends Phaser.Scene {
       { font: '24px monospace', color: '#ffffff', align: 'center', lineSpacing: 8 }
     ).setOrigin(0.5, 0);
     this.add.text(c.width / 2, head.y + head.height + 8,
-      `Coins/sec: ${perSecond}\nLongest streak: ${this.longestStreak}\n\nTop 5\n${topLines}\n\nPress R to try again`,
+      `Coins/sec: ${perSecond}\nLongest streak: ${this.longestStreak}\nAchievements: ${this.unlocked.size}/${Object.keys(ACHIEVEMENTS).length}\n\nTop 5\n${topLines}\n\nPress R to try again`,
       { font: '16px monospace', color: '#ffffff', align: 'center', lineSpacing: 4 }
     ).setOrigin(0.5, 0);
   }
