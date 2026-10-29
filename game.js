@@ -22,6 +22,24 @@ const POWER_UPS = {
     shape: s => [s / 2, 0, s, s, 0, s],
     start: scene => scene.player.setStrokeStyle(COIN_DASH.powerUps.shield.glowWidth, COIN_DASH.colors.shield),
     end: scene => scene.player.setStrokeStyle()
+  },
+  magnet: {
+    label: 'Magnet',
+    seconds: () => COIN_DASH.powerUps.magnet.durationSeconds,
+    shape: s => {
+      const a = s / 3, b = 2 * s / 3;
+      return [a, 0, b, 0, b, a, s, a, s, b, b, b, b, s, a, s, a, b, 0, b, 0, a, a, a];
+    },
+    tick: scene => {
+      const m = COIN_DASH.powerUps.magnet;
+      const { coin, player } = scene;
+      if (Phaser.Math.Distance.Between(coin.x, coin.y, player.x, player.y) > m.radius) {
+        coin.body.setVelocity(0, 0);
+        return;
+      }
+      scene.physics.moveToObject(coin, player, m.pullSpeed);
+    },
+    end: scene => scene.coin.body.setVelocity(0, 0)
   }
 };
 

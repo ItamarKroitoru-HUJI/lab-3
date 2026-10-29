@@ -14,10 +14,11 @@ window.COIN_DASH = {
     minSpawnDistance: 150,
     speed: { durationSeconds: 3, multiplier: 1.6 },
     freeze: { durationSeconds: 3 },
-    shield: { graceSeconds: 1, glowWidth: 4 }
+    shield: { graceSeconds: 1, glowWidth: 4 },
+    magnet: { durationSeconds: 5, radius: 150, pullSpeed: 260 }
   },
   colors: {
     background: 0x101c31, player: 0x71e8ce, coin: 0xffd166, drone: 0xff657a,
-    speed: 0x4ade80, freeze: 0x9ad7ff, shield: 0xc4a7ff
+    speed: 0x4ade80, freeze: 0x9ad7ff, shield: 0xc4a7ff, magnet: 0xff9f43
   }
 };
