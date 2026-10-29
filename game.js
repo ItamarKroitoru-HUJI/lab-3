@@ -32,6 +32,7 @@ class CoinDash extends Phaser.Scene {
       this.placeCoin();
     });
     this.physics.add.overlap(this.player, this.drones, () => this.finish('A drone caught you!'));
+    this.createBoost();
     this.cursors = this.input.keyboard.createCursorKeys();
     this.keys = this.input.keyboard.addKeys('W,A,S,D,R');
     this.input.keyboard.on('keydown-R', () => this.scene.restart());
@@ -49,13 +50,73 @@ class CoinDash extends Phaser.Scene {
     this.coin.body.reset(x, y);
   }
 
+  createBoost() {
+    const c = COIN_DASH;
+    const b = c.boost;
+    const h = b.size / 2;
+    this.boostUntil = 0;
+    this.diamondExpiry = null;
+    this.boostHud = this.add.text(c.width - 18, 12, '',
+      { font: '18px monospace', color: '#' + c.colors.boost.toString(16).padStart(6, '0') }).setOrigin(1, 0);
+    this.diamond = this.add.polygon(0, 0, [h, 0, b.size, h, h, b.size, 0, h], c.colors.boost);
+    this.physics.add.existing(this.diamond);
+    this.diamond.body.setCircle(h);
+    this.hideDiamond();
+    this.physics.add.overlap(this.player, this.diamond, () => {
+      if (this.finished || !this.diamond.visible) return;
+      this.hideDiamond();
+      this.boostUntil = this.time.now + b.durationSeconds * 1000;
+    });
+    this.scheduleDiamond();
+    // Refresh the boost readout on its own clock so update() stays untouched.
+    this.time.addEvent({ delay: 100, loop: true, callback: () => {
+      if (this.finished) return;
+      const left = (this.boostUntil - this.time.now) / 1000;
+      this.boostHud.setText(left > 0 ? `Boost: ${left.toFixed(1)}s` : '');
+    } });
+  }
+
+  scheduleDiamond() {
+    const b = COIN_DASH.boost;
+    this.time.delayedCall(Phaser.Math.Between(b.spawnMinSeconds * 1000, b.spawnMaxSeconds * 1000), () => {
+      if (this.finished) return;
+      this.spawnDiamond();
+      this.scheduleDiamond();
+    });
+  }
+
+  spawnDiamond() {
+    const c = COIN_DASH;
+    let x, y;
+    do {
+      x = Phaser.Math.Between(25, c.width - 25);
+      y = Phaser.Math.Between(70, c.height - 25);
+    } while (Phaser.Math.Distance.Between(x, y, this.player.x, this.player.y) < c.boost.minSpawnDistance);
+    this.diamond.setPosition(x, y).setVisible(true);
+    this.diamond.body.reset(x, y);
+    this.diamond.body.enable = true;
+    if (this.diamondExpiry) this.diamondExpiry.remove();
+    this.diamondExpiry = this.time.delayedCall(c.boost.lifetimeSeconds * 1000, () => this.hideDiamond());
+  }
+
+  hideDiamond() {
+    this.diamond.setVisible(false);
+    this.diamond.body.enable = false;
+    if (this.diamondExpiry) this.diamondExpiry.remove();
+    this.diamondExpiry = null;
+  }
+
+  speedMultiplier() {
+    return this.time.now < this.boostUntil ? COIN_DASH.boost.speedMultiplier : 1;
+  }
+
   update() {
     if (this.finished) return;
     const dx = Number(this.cursors.right.isDown || this.keys.D.isDown)
       - Number(this.cursors.left.isDown || this.keys.A.isDown);
     const dy = Number(this.cursors.down.isDown || this.keys.S.isDown)
       - Number(this.cursors.up.isDown || this.keys.W.isDown);
-    const direction = new Phaser.Math.Vector2(dx, dy).normalize().scale(COIN_DASH.playerSpeed);
+    const direction = new Phaser.Math.Vector2(dx, dy).normalize().scale(COIN_DASH.playerSpeed * this.speedMultiplier());
     this.player.body.setVelocity(direction.x, direction.y);
     const seconds = Math.max(0, Math.ceil((this.deadline - this.time.now) / 1000));
     this.hud.setText(`Coins: ${this.score}                       Time: ${seconds}s`);
