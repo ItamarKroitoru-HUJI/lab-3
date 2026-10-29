@@ -11,5 +11,6 @@ window.COIN_DASH = {
     ringRadius: 9, ringScale: 4, ringStroke: 3, ringMs: 380,
     pulseScale: 1.25, pulseStroke: 2, pulseMs: 110,
     flashAlpha: 0.06, flashMs: 120
-  }
+  },
+  floatText: { rise: 36, ms: 600, font: '18px monospace' }
 };
