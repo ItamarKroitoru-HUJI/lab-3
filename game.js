@@ -19,6 +19,13 @@ const POPUP_MS = 500;
 const DASH_MS = 200;                   // length of the dash burst
 const DASH_SPEED_FACTOR = 3;           // dash speed as a multiple of player speed
 const DASH_COOLDOWN_MS = 1500;         // cooldown after a dash ends
+const TIME_COIN_COLOR = 0x4fc3ff;
+const TIME_COIN_INTERVAL_MS = 12000;   // play time between time-coin spawns
+const TIME_COIN_BONUS_MS = 5000;       // time added when collected
+const TIME_COIN_LIFETIME_MS = 5000;    // it vanishes if not collected in this long
+const TIME_COIN_MIN_DISTANCE = 60;     // spawns at least this far from the player
+const COMBO_WINDOW_MS = 2000;          // a coin within this long of the last one counts double
+const COMBO_TEXT_MS = 600;             // how long "Combo x2" shows
 class CoinDash extends Phaser.Scene {
   constructor() { super('CoinDash'); }
 
@@ -42,6 +49,11 @@ class CoinDash extends Phaser.Scene {
     this.dashCooldownMs = 0; // time left before the next dash; counted down in update()
     this.dashQueued = false; // Shift pressed; consumed in update() once a direction is known
     this.dashDir = new Phaser.Math.Vector2(0, 0);
+    // Play-time timers (counted down/up in update() with delta, so pause and countdown don't count).
+    this.comboMs = 0;          // time left in which the next coin counts double
+    this.comboTextMs = 0;
+    this.timeCoinSpawnMs = 0;
+    this.timeCoinLifeMs = 0;   // > 0 while the time coin is on screen
     this.physics.world.setBounds(0, 44, c.width, c.height - 44);
     this.add.grid(c.width / 2, c.height / 2, c.width, c.height, 40, 40,
       c.colors.background, 1, 0x2a1f5c, 0.5);
@@ -58,6 +70,12 @@ class CoinDash extends Phaser.Scene {
     this.physics.add.existing(this.coin);
     this.coin.body.setCircle(9);
     this.placeCoin();
+    this.timeCoin = this.add.circle(-100, -100, 9, TIME_COIN_COLOR);
+    this.physics.add.existing(this.timeCoin);
+    this.timeCoin.body.setCircle(9);
+    this.hideTimeCoin();
+    this.comboText = this.add.text(c.width / 2, 58, 'Combo x2',
+      { font: '22px monospace', color: '#ffd84f' }).setOrigin(0.5).setVisible(false);
     this.drones = this.physics.add.group();
     for (let i = 0; i < c.droneCount; i++) {
       const drone = this.add.rectangle(90 + i * 270, 100, 26, 26, c.colors.drone);
@@ -71,17 +89,29 @@ class CoinDash extends Phaser.Scene {
     this.chaser.body.setCollideWorldBounds(true);
     this.physics.add.overlap(this.player, this.coin, () => {
       if (this.finished) return;
-      const points = this.coinGold ? GOLD_COIN_POINTS : 1;
+      const combo = this.comboMs > 0;
+      const points = (this.coinGold ? GOLD_COIN_POINTS : 1) * (combo ? 2 : 1);
       this.popText(this.coin.x, this.coin.y, `+${points}`, this.coinGold);
       const before = this.score;
       this.score += points;
       // Spawn in update(), not here: don't add bodies in the middle of the physics step.
-      // Count threshold crossings, since a gold coin can jump past a multiple of N.
+      // Count threshold crossings, since gold/combo coins can jump past a multiple of N.
       this.pendingDrones += Math.floor(this.score / COINS_PER_NEW_DRONE)
         - Math.floor(before / COINS_PER_NEW_DRONE);
       this.streak++;
       this.longestStreak = Math.max(this.longestStreak, this.streak);
+      this.comboMs = COMBO_WINDOW_MS;
+      if (combo) {
+        this.comboTextMs = COMBO_TEXT_MS;
+        this.comboText.setVisible(true);
+      }
       this.placeCoin();
+    });
+    this.physics.add.overlap(this.player, this.timeCoin, () => {
+      if (this.finished || this.timeCoinLifeMs <= 0) return;
+      const cap = this.time.now + COIN_DASH.roundSeconds * 1000;
+      this.deadline = Math.min(this.deadline + TIME_COIN_BONUS_MS, cap);
+      this.hideTimeCoin();
     });
     this.physics.add.overlap(this.player, this.drones, () => this.hitByDrone());
     this.cursors = this.input.keyboard.createCursorKeys();
@@ -179,6 +209,7 @@ class CoinDash extends Phaser.Scene {
     if (this.phase !== 'playing' || this.finished || this.paused || this.invulnMs > 0) return;
     this.lives--;
     this.streak = 0;
+    this.comboMs = 0;
     this.hitFeedback();
     if (this.lives <= 0) {
       this.renderHud(this.secondsLeft());
@@ -268,6 +299,43 @@ class CoinDash extends Phaser.Scene {
     this.coin.body.reset(x, y);
   }
 
+  hideTimeCoin() {
+    this.timeCoinLifeMs = 0;
+    this.timeCoin.setVisible(false);
+    this.timeCoin.body.enable = false;
+  }
+
+  spawnTimeCoin() {
+    const c = COIN_DASH;
+    let x, y;
+    do {
+      x = Phaser.Math.Between(25, c.width - 25);
+      y = Phaser.Math.Between(70, c.height - 25);
+    } while (Phaser.Math.Distance.Between(x, y, this.player.x, this.player.y) < TIME_COIN_MIN_DISTANCE);
+    this.timeCoin.setPosition(x, y);
+    this.timeCoin.body.enable = true;
+    this.timeCoin.body.reset(x, y);
+    this.timeCoin.setVisible(true);
+    this.timeCoinLifeMs = TIME_COIN_LIFETIME_MS;
+  }
+
+  updateTimers(delta) {
+    this.comboMs = Math.max(0, this.comboMs - delta);
+    if (this.comboTextMs > 0) {
+      this.comboTextMs = Math.max(0, this.comboTextMs - delta);
+      if (this.comboTextMs === 0) this.comboText.setVisible(false);
+    }
+    if (this.timeCoinLifeMs > 0) {
+      this.timeCoinLifeMs -= delta;
+      if (this.timeCoinLifeMs <= 0) this.hideTimeCoin();
+    }
+    this.timeCoinSpawnMs += delta;
+    if (this.timeCoinSpawnMs >= TIME_COIN_INTERVAL_MS) {
+      this.timeCoinSpawnMs = 0;
+      this.spawnTimeCoin();
+    }
+  }
+
   spawnDrone() {
     const c = COIN_DASH;
     let x, y;
@@ -309,6 +377,7 @@ class CoinDash extends Phaser.Scene {
     // update() only runs while playing and not paused, so this counts play time only.
     this.coinAgeMs += delta;
     if (this.coinAgeMs >= COIN_WANDER_MS) this.placeCoin(true);
+    this.updateTimers(delta);
     if (this.invulnMs > 0) {
       this.invulnMs = Math.max(0, this.invulnMs - delta);
       this.player.setAlpha(this.invulnMs > 0 && Math.floor(this.invulnMs / 100) % 2 ? 0.25 : 1);
