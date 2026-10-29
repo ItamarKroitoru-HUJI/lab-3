@@ -10,6 +10,7 @@ window.COIN_DASH = {
     goldCoin: 0xff9f1c, timeCoin: 0x4da3ff },
   coinWanderMs: 4000,
   goldCoin: { every: 5, points: 3 },
+  combo: { windowMs: 2000, multiplier: 2, holdMs: 500, fadeMs: 300, font: '22px monospace' },
   timeCoin: { seconds: 5, checkMs: 3000, chance: 0.35, lifeMs: 5000 },
   coinEffect: {
     ringRadius: 9, ringScale: 4, ringStroke: 3, ringMs: 380,

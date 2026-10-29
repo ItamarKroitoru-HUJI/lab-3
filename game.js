@@ -19,6 +19,10 @@ class CoinDash extends Phaser.Scene {
     this.physics.add.existing(this.coin);
     this.coin.body.setCircle(9);
     this.collected = 0;
+    this.combo = 0;
+    this.lastPickup = -Infinity;
+    this.comboText = this.add.text(c.width / 2, 70, '', { font: c.combo.font, color: '#ffffff' })
+      .setOrigin(0.5).setAlpha(0).setDepth(1);
     this.wanderTimer = null;
     this.placeCoin();
     this.drones = this.physics.add.group();
@@ -31,7 +35,12 @@ class CoinDash extends Phaser.Scene {
     }
     this.physics.add.overlap(this.player, this.coin, () => {
       if (this.finished) return;
-      const points = this.coin.gold ? c.goldCoin.points : 1;
+      const now = this.time.now;
+      this.combo = now - this.lastPickup <= c.combo.windowMs ? this.combo + 1 : 1;
+      this.lastPickup = now;
+      const base = this.coin.gold ? c.goldCoin.points : 1;
+      const points = this.combo > 1 ? base * c.combo.multiplier : base;
+      if (this.combo > 1) this.showCombo();
       this.score += points;
       this.collected++;
       this.playCoinEffect(this.coin.x, this.coin.y);
@@ -74,6 +83,13 @@ class CoinDash extends Phaser.Scene {
       yoyo: true, ease: 'Sine.easeOut', onUpdate: () => shape.setPosition(p.x, p.y),
       onComplete: () => { shape.destroy(); this.pulse = null; } });
     this.pulse = { shape, tween };
+  }
+
+  showCombo() {
+    this.tweens.killTweensOf(this.comboText);
+    this.comboText.setText(`Combo x${this.combo}`).setAlpha(1);
+    this.tweens.add({ targets: this.comboText, alpha: 0, delay: COIN_DASH.combo.holdMs,
+      duration: COIN_DASH.combo.fadeMs });
   }
 
   floatText(x, y, message, color) {
