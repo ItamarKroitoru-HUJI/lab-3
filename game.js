@@ -1,4 +1,13 @@
 /* global Phaser, COIN_DASH */
+// Pickup types. shape() returns polygon points inside a size x size box.
+const POWER_UPS = {
+  speed: {
+    label: 'Speed',
+    seconds: () => COIN_DASH.powerUps.speed.durationSeconds,
+    shape: s => [s / 2, 0, s, s / 2, s / 2, s, 0, s / 2]
+  }
+};
+
 class CoinDash extends Phaser.Scene {
   constructor() { super('CoinDash'); }
 
@@ -32,7 +41,7 @@ class CoinDash extends Phaser.Scene {
       this.placeCoin();
     });
     this.physics.add.overlap(this.player, this.drones, () => this.finish('A drone caught you!'));
-    this.createBoost();
+    this.createPowerUps();
     this.cursors = this.input.keyboard.createCursorKeys();
     this.keys = this.input.keyboard.addKeys('W,A,S,D,R');
     this.input.keyboard.on('keydown-R', () => this.scene.restart());
@@ -50,64 +59,86 @@ class CoinDash extends Phaser.Scene {
     this.coin.body.reset(x, y);
   }
 
-  createBoost() {
+  createPowerUps() {
     const c = COIN_DASH;
-    const b = c.boost;
-    const h = b.size / 2;
-    this.boostUntil = 0;
-    this.diamondExpiry = null;
-    this.boostHud = this.add.text(c.width - 18, 12, '',
-      { font: '18px monospace', color: '#' + c.colors.boost.toString(16).padStart(6, '0') }).setOrigin(1, 0);
-    this.diamond = this.add.polygon(0, 0, [h, 0, b.size, h, h, b.size, 0, h], c.colors.boost);
-    this.physics.add.existing(this.diamond);
-    this.diamond.body.setCircle(h);
-    this.hideDiamond();
-    this.physics.add.overlap(this.player, this.diamond, () => {
-      if (this.finished || !this.diamond.visible) return;
-      this.hideDiamond();
-      this.boostUntil = this.time.now + b.durationSeconds * 1000;
-    });
-    this.scheduleDiamond();
-    // Refresh the boost readout on its own clock so update() stays untouched.
-    this.time.addEvent({ delay: 100, loop: true, callback: () => {
+    this.effects = {}; // type -> time.now at which the effect ends
+    this.pickup = null;
+    this.pickups = this.physics.add.group();
+    this.powerHud = this.add.text(c.width - 18, 22, '',
+      { font: '14px monospace', color: '#ffffff', align: 'right', lineSpacing: 2 }).setOrigin(1, 0.5);
+    this.physics.add.overlap(this.player, this.pickups, (player, pickup) => {
       if (this.finished) return;
-      const left = (this.boostUntil - this.time.now) / 1000;
-      this.boostHud.setText(left > 0 ? `Boost: ${left.toFixed(1)}s` : '');
-    } });
+      const type = pickup.powerType;
+      this.removePickup();
+      this.startEffect(type);
+    });
+    this.schedulePickup();
+    // Effects and the HUD run on their own clock so update() stays untouched.
+    this.time.addEvent({ delay: 50, loop: true, callback: () => this.tickEffects() });
   }
 
-  scheduleDiamond() {
-    const b = COIN_DASH.boost;
-    this.time.delayedCall(Phaser.Math.Between(b.spawnMinSeconds * 1000, b.spawnMaxSeconds * 1000), () => {
+  schedulePickup() {
+    const p = COIN_DASH.powerUps;
+    this.time.delayedCall(Phaser.Math.Between(p.spawnMinSeconds * 1000, p.spawnMaxSeconds * 1000), () => {
       if (this.finished) return;
-      this.spawnDiamond();
-      this.scheduleDiamond();
+      this.spawnPickup(Phaser.Utils.Array.GetRandom(Object.keys(POWER_UPS)));
+      this.schedulePickup();
     });
   }
 
-  spawnDiamond() {
+  spawnPickup(type) {
     const c = COIN_DASH;
+    const p = c.powerUps;
     let x, y;
     do {
       x = Phaser.Math.Between(25, c.width - 25);
       y = Phaser.Math.Between(70, c.height - 25);
-    } while (Phaser.Math.Distance.Between(x, y, this.player.x, this.player.y) < c.boost.minSpawnDistance);
-    this.diamond.setPosition(x, y).setVisible(true);
-    this.diamond.body.reset(x, y);
-    this.diamond.body.enable = true;
-    if (this.diamondExpiry) this.diamondExpiry.remove();
-    this.diamondExpiry = this.time.delayedCall(c.boost.lifetimeSeconds * 1000, () => this.hideDiamond());
+    } while (Phaser.Math.Distance.Between(x, y, this.player.x, this.player.y) < p.minSpawnDistance);
+    this.removePickup();
+    this.pickup = this.add.polygon(x, y, POWER_UPS[type].shape(p.size), c.colors[type]);
+    this.pickup.powerType = type;
+    this.pickups.add(this.pickup);
+    this.pickup.body.setCircle(p.size / 2);
+    this.pickup.expiry = this.time.delayedCall(p.lifetimeSeconds * 1000, () => this.removePickup());
   }
 
-  hideDiamond() {
-    this.diamond.setVisible(false);
-    this.diamond.body.enable = false;
-    if (this.diamondExpiry) this.diamondExpiry.remove();
-    this.diamondExpiry = null;
+  removePickup() {
+    if (!this.pickup) return;
+    this.pickup.expiry.remove();
+    this.pickup.destroy();
+    this.pickup = null;
+  }
+
+  startEffect(type) {
+    const def = POWER_UPS[type];
+    // Picking up an active type refreshes its timer without restarting it.
+    if (!this.effects[type] && def.start) def.start(this);
+    this.effects[type] = def.seconds ? this.time.now + def.seconds() * 1000 : Infinity;
+  }
+
+  endEffect(type) {
+    if (!this.effects[type]) return;
+    delete this.effects[type];
+    if (POWER_UPS[type].end) POWER_UPS[type].end(this);
+  }
+
+  tickEffects() {
+    if (this.finished) return;
+    const labels = [];
+    for (const type of Object.keys(this.effects)) {
+      const def = POWER_UPS[type];
+      const left = (this.effects[type] - this.time.now) / 1000;
+      if (left <= 0) { this.endEffect(type); continue; }
+      if (def.tick) def.tick(this);
+      labels.push(left === Infinity ? def.label : `${def.label} ${left.toFixed(1)}s`);
+    }
+    const lines = [];
+    for (let i = 0; i < labels.length; i += 2) lines.push(labels.slice(i, i + 2).join('   '));
+    this.powerHud.setText(lines.join('\n'));
   }
 
   speedMultiplier() {
-    return this.time.now < this.boostUntil ? COIN_DASH.boost.speedMultiplier : 1;
+    return this.effects.speed ? COIN_DASH.powerUps.speed.multiplier : 1;
   }
 
   update() {
