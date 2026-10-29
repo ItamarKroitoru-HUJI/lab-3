@@ -37,6 +37,21 @@ const FREEZE_MS = 3000;
 const MAGNET_MS = 4000;
 const MAGNET_RANGE = 200;
 const MAGNET_SPEED = 200;
+const POINTS_PER_LEVEL = 15;           // score needed per level-up
+const MAX_LEVEL = 4;
+const LEVEL_TEXT_MS = 1000;            // how long the big "Level N" text takes to fade
+const LEVEL_HUD_X = 680;
+const WALL_COLOR = 0x5c4b8a;
+const WALL_STROKE = 0xb44cff;
+const WALL_CLEAR_PX = 60;              // wall pieces overlapping this square around the player are skipped
+const SPAWN_CLEARANCE = 16;            // coins, time coins and power-ups keep this far from walls
+// Each piece: [centre x as share of width, centre y as share of height, width px, height px].
+const LEVEL_WALLS = {
+  1: [],
+  2: [[0.3, 0.35, 160, 20], [0.7, 0.65, 160, 20]],
+  3: [[0.5, 0.5, 200, 24], [0.5, 0.5, 24, 200]],
+  4: [[0.2, 0.25, 50, 50], [0.8, 0.25, 50, 50], [0.2, 0.8, 50, 50], [0.8, 0.8, 50, 50], [0.5, 0.5, 60, 60]]
+};
 const POWERUPS = {
   S: { name: 'Shield!', color: 0x69f0ae },
   B: { name: 'Speed!', color: 0xffab40 },
@@ -78,11 +93,14 @@ class CoinDash extends Phaser.Scene {
     this.freezeMs = 0;
     this.frozen = [];        // { d, vx, vy } saved drone velocities while frozen
     this.magnetMs = 0;
+    this.level = 1;
     this.physics.world.setBounds(0, 44, c.width, c.height - 44);
     this.add.grid(c.width / 2, c.height / 2, c.width, c.height, 40, 40,
       c.colors.background, 1, 0x2a1f5c, 0.5);
     this.hud = this.add.text(18, 12, '', { font: '18px monospace', color: '#ffffff' });
     this.dashHud = this.add.text(18, 34, 'Dash: ready', { font: '14px monospace', color: '#ffffff' });
+    this.levelHud = this.add.text(LEVEL_HUD_X, 34, 'Level 1', { font: '14px monospace', color: '#ffffff' });
+    this.walls = this.physics.add.staticGroup(); // must exist before the first placeCoin()
     this.player = this.add.rectangle(c.width / 2, c.height / 2, 24, 24, c.colors.player);
     this.lastTrailAt = 0;
     this.physics.add.existing(this.player);
@@ -111,6 +129,8 @@ class CoinDash extends Phaser.Scene {
     this.chaser = this.add.rectangle(c.width - 60, c.height - 60, 26, 26, CHASER_COLOR);
     this.drones.add(this.chaser);
     this.chaser.body.setCollideWorldBounds(true);
+    this.physics.add.collider(this.player, this.walls);
+    this.physics.add.collider(this.drones, this.walls); // drones (incl. the chaser) bounce/slide off walls
     this.physics.add.overlap(this.player, this.coin, () => {
       if (this.finished) return;
       const combo = this.comboMs > 0;
@@ -324,9 +344,48 @@ class CoinDash extends Phaser.Scene {
     do {
       x = Phaser.Math.Between(25, c.width - 25);
       y = Phaser.Math.Between(70, c.height - 25);
-    } while (Phaser.Math.Distance.Between(x, y, this.player.x, this.player.y) < 60);
+    } while (Phaser.Math.Distance.Between(x, y, this.player.x, this.player.y) < 60
+      || !this.spotIsFree(x, y, SPAWN_CLEARANCE));
     this.coin.setPosition(x, y);
     this.coin.body.reset(x, y);
+  }
+
+  // True when a circle at (x, y) with radius r touches no wall body.
+  spotIsFree(x, y, r) {
+    return !this.walls.getChildren().some((w) => {
+      const b = w.body;
+      const nx = Phaser.Math.Clamp(x, b.x, b.x + b.width);
+      const ny = Phaser.Math.Clamp(y, b.y, b.y + b.height);
+      return Phaser.Math.Distance.Between(x, y, nx, ny) < r;
+    });
+  }
+
+  // Called from update() (not from an overlap callback), so bodies change outside the physics step.
+  updateLevel() {
+    const target = Math.min(MAX_LEVEL, 1 + Math.floor(this.score / POINTS_PER_LEVEL));
+    if (target === this.level) return;
+    const c = COIN_DASH;
+    this.level = target;
+    this.levelHud.setText(`Level ${target}`);
+    this.walls.clear(true, true);
+    const half = WALL_CLEAR_PX / 2;
+    LEVEL_WALLS[target].forEach(([fx, fy, w, h]) => {
+      const x = fx * c.width;
+      const y = fy * c.height;
+      if (Math.abs(x - this.player.x) < w / 2 + half && Math.abs(y - this.player.y) < h / 2 + half) return;
+      this.walls.add(this.add.rectangle(x, y, w, h, WALL_COLOR).setStrokeStyle(2, WALL_STROKE));
+    });
+    // Anything already on the field that a new wall now covers is moved or removed.
+    if (!this.spotIsFree(this.coin.x, this.coin.y, SPAWN_CLEARANCE)) this.placeCoin(true);
+    if (this.timeCoinLifeMs > 0 && !this.spotIsFree(this.timeCoin.x, this.timeCoin.y, SPAWN_CLEARANCE)) {
+      this.hideTimeCoin();
+    }
+    if (this.powerup && !this.spotIsFree(this.powerup.shape.x, this.powerup.shape.y, SPAWN_CLEARANCE)) {
+      this.clearPowerup();
+    }
+    const text = this.add.text(c.width / 2, c.height / 2, `Level ${target}`,
+      { font: 'bold 72px monospace', color: '#ffffff' }).setOrigin(0.5).setDepth(10);
+    this.tweens.add({ targets: text, alpha: 0, duration: LEVEL_TEXT_MS, onComplete: () => text.destroy() });
   }
 
   hideTimeCoin() {
@@ -341,7 +400,8 @@ class CoinDash extends Phaser.Scene {
     do {
       x = Phaser.Math.Between(25, c.width - 25);
       y = Phaser.Math.Between(70, c.height - 25);
-    } while (Phaser.Math.Distance.Between(x, y, this.player.x, this.player.y) < TIME_COIN_MIN_DISTANCE);
+    } while (Phaser.Math.Distance.Between(x, y, this.player.x, this.player.y) < TIME_COIN_MIN_DISTANCE
+      || !this.spotIsFree(x, y, SPAWN_CLEARANCE));
     this.timeCoin.setPosition(x, y);
     this.timeCoin.body.enable = true;
     this.timeCoin.body.reset(x, y);
@@ -391,7 +451,8 @@ class CoinDash extends Phaser.Scene {
     do {
       x = Phaser.Math.Between(25, c.width - 25);
       y = Phaser.Math.Between(70, c.height - 25);
-    } while (Phaser.Math.Distance.Between(x, y, this.player.x, this.player.y) < POWERUP_MIN_DISTANCE);
+    } while (Phaser.Math.Distance.Between(x, y, this.player.x, this.player.y) < POWERUP_MIN_DISTANCE
+      || !this.spotIsFree(x, y, SPAWN_CLEARANCE));
     const shape = this.add.star(x, y, 5, 7, 14, POWERUPS[type].color).setStrokeStyle(2, 0xffffff);
     const label = this.add.text(x, y, type, { font: 'bold 12px monospace', color: '#0a1120' }).setOrigin(0.5);
     this.powerup = { type, shape, label, ms: POWERUP_LIFETIME_MS };
@@ -489,6 +550,7 @@ class CoinDash extends Phaser.Scene {
 
   update(time, delta) {
     if (this.finished || this.paused || this.phase !== 'playing') return;
+    this.updateLevel();
     this.updateDrones();
     // update() only runs while playing and not paused, so this counts play time only.
     this.coinAgeMs += delta;
