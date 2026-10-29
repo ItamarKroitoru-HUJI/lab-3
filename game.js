@@ -47,8 +47,8 @@ const BIG_SPAWN_MS = 20000;            // play time before the big drone appears
 const POINTS_PER_LEVEL = 15;           // score needed per level-up
 const MAX_LEVEL = 4;
 const LEVEL_TEXT_MS = 1000;            // how long the big "Level N" text takes to fade
-const LEVEL_HUD_X = 680;
-const WALL_COLOR = 0x5c4b8a;
+const LEVEL_HUD_X = COIN_DASH.width - 18;
+const WALL_COLOR = 0x2a1f5c;
 const WALL_STROKE = 0xb44cff;
 const WALL_CLEAR_PX = 60;              // wall pieces overlapping this square around the player are skipped
 const SPAWN_CLEARANCE = 16;            // coins, time coins and power-ups keep this far from walls
@@ -81,7 +81,7 @@ const SURVIVOR_MS = 30000;             // play time without losing a life
 const TOAST_SLIDE_MS = 250;
 const TOAST_HOLD_MS = 2000;
 const TOAST_FADE_MS = 400;
-const TOAST_MARGIN = 12;
+const TOAST_MARGIN = 18;
 class CoinDash extends Phaser.Scene {
   constructor() { super('CoinDash'); }
 
@@ -130,7 +130,7 @@ class CoinDash extends Phaser.Scene {
       c.colors.background, 1, 0x2a1f5c, 0.5);
     this.hud = this.add.text(18, 12, '', { font: '18px monospace', color: '#ffffff' });
     this.dashHud = this.add.text(18, 34, 'Dash: ready', { font: '14px monospace', color: '#ffffff' });
-    this.levelHud = this.add.text(LEVEL_HUD_X, 34, 'Level 1', { font: '14px monospace', color: '#ffffff' });
+    this.levelHud = this.add.text(LEVEL_HUD_X, 34, 'Level 1', { font: '14px monospace', color: '#ffffff' }).setOrigin(1, 0);
     this.walls = this.physics.add.staticGroup(); // must exist before the first placeCoin()
     this.player = this.add.rectangle(c.width / 2, c.height / 2, 24, 24, c.colors.player);
     this.lastTrailAt = 0;
@@ -148,7 +148,8 @@ class CoinDash extends Phaser.Scene {
     this.timeCoin.body.setCircle(9);
     this.hideTimeCoin();
     this.comboText = this.add.text(c.width / 2, 58, 'Combo x2',
-      { font: '22px monospace', color: '#ffd84f' }).setOrigin(0.5).setVisible(false);
+      { font: '22px monospace', color: '#ffd84f', stroke: '#0a0618', strokeThickness: 4 })
+      .setOrigin(0.5).setDepth(10).setVisible(false);
     this.drones = this.physics.add.group();
     for (let i = 0; i < c.droneCount; i++) {
       const drone = this.add.rectangle(90 + i * 270, 100, 26, 26, c.colors.drone);
@@ -215,10 +216,12 @@ class CoinDash extends Phaser.Scene {
       this.startCountdown();
     } else {
       this.startOverlay = [
-        this.add.rectangle(c.width / 2, c.height / 2, 460, 150, 0x0a1120, 0.95),
-        this.add.text(c.width / 2, c.height / 2, 'Coin Dash\nPress Space to start',
-          { font: '24px monospace', color: '#ffffff', align: 'center', lineSpacing: 12 }
-        ).setOrigin(0.5)
+        this.add.rectangle(c.width / 2, c.height / 2, 460, 150, 0x0a0618, 1)
+          .setStrokeStyle(2, 0xb44cff).setDepth(20),
+        this.add.text(c.width / 2, c.height / 2 - 18, 'Coin Dash',
+          { font: '24px monospace', color: '#ffffff', align: 'center' }).setOrigin(0.5).setDepth(21),
+        this.add.text(c.width / 2, c.height / 2 + 22, 'Press Space to start',
+          { font: '16px monospace', color: '#ffffff', align: 'center' }).setOrigin(0.5).setDepth(21)
       ];
     }
   }
@@ -233,7 +236,7 @@ class CoinDash extends Phaser.Scene {
     }
     let n = 3;
     const label = this.add.text(c.width / 2, c.height / 2, String(n),
-      { font: '96px monospace', color: '#ffffff', align: 'center' }).setOrigin(0.5);
+      { font: 'bold 96px monospace', color: '#ffffff', align: 'center' }).setOrigin(0.5).setDepth(10);
     this.time.addEvent({
       delay: 1000,
       repeat: 2,
@@ -274,10 +277,11 @@ class CoinDash extends Phaser.Scene {
     if (this.helpPaused) this.togglePause();
     this.setBoxesVisible(false);
     this.helpOverlay = [
-      this.add.rectangle(c.width / 2, c.height / 2, 600, 380, 0x0a1120, 0.97),
-      this.add.text(c.width / 2, c.height / 2 - 160, 'Help',
-        { font: '24px monospace', color: '#ffffff' }).setOrigin(0.5),
-      this.add.text(c.width / 2, c.height / 2 - 125, [
+      this.add.rectangle(c.width / 2, c.height / 2, 600, 380, 0x0a0618, 1)
+        .setStrokeStyle(2, 0xb44cff).setDepth(20),
+      this.add.text(c.width / 2, c.height / 2 - 150, 'Help',
+        { font: '24px monospace', color: '#ffffff' }).setOrigin(0.5).setDepth(21),
+      this.add.text(c.width / 2, c.height / 2 - 115, [
         'Move: arrows/WASD or drag   Dash: Shift',
         'Pause: P/Esc   Restart: R   Help: H',
         '',
@@ -289,7 +293,7 @@ class CoinDash extends Phaser.Scene {
         'You have 3 lives.',
         '',
         'Press H to close'
-      ].join('\n'), { font: '16px monospace', color: '#ffffff', align: 'center', lineSpacing: 8 }).setOrigin(0.5, 0)
+      ].join('\n'), { font: '16px monospace', color: '#ffffff', align: 'center', lineSpacing: 8 }).setOrigin(0.5, 0).setDepth(21)
     ];
   }
 
@@ -316,11 +320,12 @@ class CoinDash extends Phaser.Scene {
       this.pausedRemaining = this.deadline - this.time.now;
       this.physics.pause();
       this.pauseOverlay = [
-        this.add.rectangle(c.width / 2, c.height / 2, 460, 150, 0x0a1120, 0.95),
+        this.add.rectangle(c.width / 2, c.height / 2, 460, 150, 0x0a0618, 1)
+          .setStrokeStyle(2, 0xb44cff).setDepth(20),
         this.add.text(c.width / 2, c.height / 2 - 18, 'Paused',
-          { font: '24px monospace', color: '#ffffff', align: 'center' }).setOrigin(0.5),
+          { font: '24px monospace', color: '#ffffff', align: 'center' }).setOrigin(0.5).setDepth(21),
         this.add.text(c.width / 2, c.height / 2 + 22, 'Press P to resume',
-          { font: '16px monospace', color: '#ffffff', align: 'center' }).setOrigin(0.5)
+          { font: '16px monospace', color: '#ffffff', align: 'center' }).setOrigin(0.5).setDepth(21)
       ];
     } else {
       this.paused = false;
@@ -524,7 +529,7 @@ class CoinDash extends Phaser.Scene {
     const c = COIN_DASH;
     const x = c.width - TOAST_MARGIN;
     const toast = this.add.text(x + 40, c.height - TOAST_MARGIN, this.toastQueue.shift(), {
-      font: '16px monospace', color: '#ffffff', backgroundColor: '#0a1120', padding: { x: 10, y: 6 }
+      font: '16px monospace', color: '#ffffff', backgroundColor: '#2a1f5c', padding: { x: 10, y: 6 }
     }).setOrigin(1, 1).setDepth(1000).setAlpha(0);
     this.tweens.add({
       targets: toast, x, alpha: 1, duration: TOAST_SLIDE_MS,
@@ -792,15 +797,26 @@ class CoinDash extends Phaser.Scene {
     top.splice(5);
     this.saveTopScores(top);
     const topLines = top.map((n, i) => `${i + 1}. ${n}`).join('\n');
-    this.add.rectangle(c.width / 2, c.height / 2, 460, 410, 0x0a1120, 0.95);
+    this.add.rectangle(c.width / 2, c.height / 2, 460, 410, 0x0a0618, 1)
+      .setStrokeStyle(2, 0xb44cff).setDepth(20);
     const head = this.add.text(c.width / 2, c.height / 2 - 192,
-      `${reason}\n${this.score} coins collected${isNewBest ? '\nNew best!' : ''}`,
+      `${reason}\n${this.score} coins collected`,
       { font: '24px monospace', color: '#ffffff', align: 'center', lineSpacing: 8 }
-    ).setOrigin(0.5, 0);
-    this.add.text(c.width / 2, head.y + head.height + 8,
-      `Coins/sec: ${perSecond}\nLongest streak: ${this.longestStreak}\nAchievements: ${this.unlocked.size}/${Object.keys(ACHIEVEMENTS).length}\n\nTop 5\n${topLines}\n\nPress R to try again`,
+    ).setOrigin(0.5, 0).setDepth(21);
+    let nextY = head.y + head.height + 8;
+    if (isNewBest) {
+      const best = this.add.text(c.width / 2, nextY, 'New best!',
+        { font: 'bold 24px monospace', color: '#ffee00' }
+      ).setOrigin(0.5, 0).setDepth(21);
+      nextY = best.y + best.height + 8;
+    }
+    this.add.text(c.width / 2, nextY,
+      `Coins/sec: ${perSecond}\nLongest streak: ${this.longestStreak}\nAchievements: ${this.unlocked.size}/${Object.keys(ACHIEVEMENTS).length}\n\nTop 5\n${topLines}`,
       { font: '16px monospace', color: '#ffffff', align: 'center', lineSpacing: 4 }
-    ).setOrigin(0.5, 0);
+    ).setOrigin(0.5, 0).setDepth(21);
+    this.add.text(c.width / 2, c.height / 2 + 180, 'Press R to try again',
+      { font: 'bold 16px monospace', color: '#00fff0' }
+    ).setOrigin(0.5).setDepth(21);
   }
 }
 window.coinDashGame = new Phaser.Game({
