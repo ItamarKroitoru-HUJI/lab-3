@@ -9,6 +9,13 @@ const DRONE_SPAWN_MIN_DISTANCE = 150;  // new drones spawn at least this far fro
 const TOP_SCORES_KEY = 'coinDash.topScores';
 const START_LIVES = 3;
 const INVULN_MS = 1500;
+const GOLD_COIN_EVERY = 5;             // every Nth coin placed is golden
+const GOLD_COIN_COLOR = 0xffaa00;
+const GOLD_COIN_POINTS = 3;
+const GOLD_COIN_SCALE = 1.4;
+const COIN_WANDER_MS = 4000;           // play time before an uncollected coin jumps elsewhere
+const POPUP_RISE_PX = 30;
+const POPUP_MS = 500;
 class CoinDash extends Phaser.Scene {
   constructor() { super('CoinDash'); }
 
@@ -36,6 +43,9 @@ class CoinDash extends Phaser.Scene {
     this.lastTrailAt = 0;
     this.physics.add.existing(this.player);
     this.player.body.setCollideWorldBounds(true);
+    this.coinsPlaced = 0;
+    this.coinAgeMs = 0;
+    this.coinGold = false;
     this.coin = this.add.circle(100, 100, 9, c.colors.coin);
     this.physics.add.existing(this.coin);
     this.coin.body.setCircle(9);
@@ -53,9 +63,14 @@ class CoinDash extends Phaser.Scene {
     this.chaser.body.setCollideWorldBounds(true);
     this.physics.add.overlap(this.player, this.coin, () => {
       if (this.finished) return;
-      this.score++;
+      const points = this.coinGold ? GOLD_COIN_POINTS : 1;
+      this.popText(this.coin.x, this.coin.y, `+${points}`, this.coinGold);
+      const before = this.score;
+      this.score += points;
       // Spawn in update(), not here: don't add bodies in the middle of the physics step.
-      if (this.score % COINS_PER_NEW_DRONE === 0) this.pendingDrones++;
+      // Count threshold crossings, since a gold coin can jump past a multiple of N.
+      this.pendingDrones += Math.floor(this.score / COINS_PER_NEW_DRONE)
+        - Math.floor(before / COINS_PER_NEW_DRONE);
       this.streak++;
       this.longestStreak = Math.max(this.longestStreak, this.streak);
       this.placeCoin();
@@ -213,8 +228,25 @@ class CoinDash extends Phaser.Scene {
     } catch (e) { /* storage blocked or full: keep playing without persistence */ }
   }
 
-  placeCoin() {
+  popText(x, y, label, gold) {
+    const t = this.add.text(x, y, label,
+      { font: '20px monospace', color: gold ? '#ffaa00' : '#ffffff' }).setOrigin(0.5);
+    this.tweens.add({
+      targets: t, y: y - POPUP_RISE_PX, alpha: 0, duration: POPUP_MS,
+      onComplete: () => t.destroy()
+    });
+  }
+
+  // relocate=true moves the current coin (wander) without counting a new coin or changing its kind.
+  placeCoin(relocate) {
     const c = COIN_DASH;
+    if (!relocate) {
+      this.coinsPlaced++;
+      this.coinGold = this.coinsPlaced % GOLD_COIN_EVERY === 0;
+      this.coin.setFillStyle(this.coinGold ? GOLD_COIN_COLOR : c.colors.coin);
+      this.coin.setScale(this.coinGold ? GOLD_COIN_SCALE : 1);
+    }
+    this.coinAgeMs = 0;
     // Avoid spawning the next coin directly underneath the player.
     let x, y;
     do {
@@ -263,6 +295,9 @@ class CoinDash extends Phaser.Scene {
   update(time, delta) {
     if (this.finished || this.paused || this.phase !== 'playing') return;
     this.updateDrones();
+    // update() only runs while playing and not paused, so this counts play time only.
+    this.coinAgeMs += delta;
+    if (this.coinAgeMs >= COIN_WANDER_MS) this.placeCoin(true);
     if (this.invulnMs > 0) {
       this.invulnMs = Math.max(0, this.invulnMs - delta);
       this.player.setAlpha(this.invulnMs > 0 && Math.floor(this.invulnMs / 100) % 2 ? 0.25 : 1);
