@@ -100,7 +100,15 @@ class CoinDash extends Phaser.Scene {
       - Number(this.cursors.left.isDown || this.keys.A.isDown);
     const dy = Number(this.cursors.down.isDown || this.keys.S.isDown)
       - Number(this.cursors.up.isDown || this.keys.W.isDown);
-    const direction = new Phaser.Math.Vector2(dx, dy).normalize().scale(COIN_DASH.playerSpeed);
+    const direction = new Phaser.Math.Vector2(dx, dy);
+    const pointer = this.input.activePointer;
+    // Keyboard wins while any movement key is held; otherwise drag toward the pointer.
+    if (direction.lengthSq() === 0 && pointer.isDown) {
+      const toX = pointer.worldX - this.player.x;
+      const toY = pointer.worldY - this.player.y;
+      if (Math.hypot(toX, toY) > 6) direction.set(toX, toY);
+    }
+    direction.normalize().scale(COIN_DASH.playerSpeed);
     this.player.body.setVelocity(direction.x, direction.y);
     const seconds = Math.max(0, Math.ceil((this.deadline - this.time.now) / 1000));
     const best = Math.max(this.bestScore, this.score);
