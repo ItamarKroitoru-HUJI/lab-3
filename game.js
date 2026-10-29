@@ -284,7 +284,8 @@ class CoinDash extends Phaser.Scene {
         'Yellow coin +1   Gold coin +3   Blue coin +5s',
         'Coins within 2s of each other give x2',
         'Power-ups: S Shield  B Speed  F Freeze  M Magnet',
-        'Red drones bounce. The purple drone chases.',
+        'Red drones bounce, purple chases, green zigzags.',
+        'Walls appear every 15 points (up to level 4).',
         'You have 3 lives.',
         '',
         'Press H to close'
