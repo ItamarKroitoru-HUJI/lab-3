@@ -179,7 +179,8 @@ class CoinDash extends Phaser.Scene {
     this.keys = this.input.keyboard.addKeys('W,A,S,D,R');
     this.input.keyboard.on('keydown-R', () => this.scene.restart({ skipStart: true }));
     // Registering the keys makes Phaser ignore held-key auto-repeat, so holding P won't flicker.
-    this.input.keyboard.addKeys('P,ESC,SPACE,SHIFT');
+    this.input.keyboard.addKeys('P,ESC,SPACE,SHIFT,H');
+    this.input.keyboard.on('keydown-H', () => this.toggleHelp());
     this.input.keyboard.on('keydown-SHIFT', () => {
       if (this.phase === 'playing' && !this.paused && !this.finished) this.dashQueued = true;
     });
@@ -204,6 +205,7 @@ class CoinDash extends Phaser.Scene {
 
   startCountdown() {
     const c = COIN_DASH;
+    if (this.helpOverlay) this.closeHelp(false);
     this.phase = 'countdown';
     if (this.startOverlay) {
       this.startOverlay.forEach((o) => o.destroy());
@@ -243,7 +245,49 @@ class CoinDash extends Phaser.Scene {
     this.tweens.add({ targets: piece, alpha: 0, scale: 0.4, duration: 200, onComplete: () => piece.destroy() });
   }
 
+  // The help box replaces the pause/start box while open; the game stays paused underneath.
+  toggleHelp() {
+    if (this.helpOverlay) { this.closeHelp(false); return; }
+    if (this.finished || this.phase === 'countdown') return;
+    const c = COIN_DASH;
+    this.helpPaused = this.phase === 'playing' && !this.paused;
+    if (this.helpPaused) this.togglePause();
+    this.setBoxesVisible(false);
+    this.helpOverlay = [
+      this.add.rectangle(c.width / 2, c.height / 2, 600, 380, 0x0a1120, 0.97),
+      this.add.text(c.width / 2, c.height / 2 - 160, 'Help',
+        { font: '24px monospace', color: '#ffffff' }).setOrigin(0.5),
+      this.add.text(c.width / 2, c.height / 2 - 125, [
+        'Move: arrows/WASD or drag   Dash: Shift',
+        'Pause: P/Esc   Restart: R   Help: H',
+        '',
+        'Yellow coin +1   Gold coin +3   Blue coin +5s',
+        'Coins within 2s of each other give x2',
+        'Power-ups: S Shield  B Speed  F Freeze  M Magnet',
+        'Red drones bounce. The purple drone chases.',
+        'You have 3 lives.',
+        '',
+        'Press H to close'
+      ].join('\n'), { font: '16px monospace', color: '#ffffff', align: 'center', lineSpacing: 8 }).setOrigin(0.5, 0)
+    ];
+  }
+
+  // resume=true (P/Esc) also resumes a game that was already paused before help opened.
+  closeHelp(resume) {
+    this.helpOverlay.forEach((o) => o.destroy());
+    this.helpOverlay = null;
+    this.setBoxesVisible(true);
+    if (this.phase === 'playing' && this.paused && (this.helpPaused || resume)) this.togglePause();
+  }
+
+  setBoxesVisible(visible) {
+    [this.pauseOverlay, this.startOverlay].forEach((box) => {
+      if (box) box.forEach((o) => o.setVisible(visible));
+    });
+  }
+
   togglePause() {
+    if (this.helpOverlay) { this.closeHelp(true); return; }
     if (this.finished || this.phase !== 'playing') return;
     const c = COIN_DASH;
     if (!this.paused) {
