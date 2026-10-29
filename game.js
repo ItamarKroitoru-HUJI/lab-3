@@ -1,5 +1,11 @@
 /* global Phaser, COIN_DASH */
 const BEST_SCORE_KEY = 'coinDash.bestScore';
+const CHASER_COLOR = 0xb388ff;
+const CHASER_SPEED_FACTOR = 0.6;       // chaser speed as a share of the current drone speed
+const SPEEDUP_INTERVAL_MS = 15000;     // round time between speed-ups
+const SPEEDUP_FACTOR = 1.15;           // each speed-up makes drones 15% faster
+const COINS_PER_NEW_DRONE = 10;        // a new bouncing drone joins every N coins
+const DRONE_SPAWN_MIN_DISTANCE = 150;  // new drones spawn at least this far from the player
 class CoinDash extends Phaser.Scene {
   constructor() { super('CoinDash'); }
 
@@ -10,6 +16,9 @@ class CoinDash extends Phaser.Scene {
     this.finished = false;
     this.paused = false;
     this.deadline = this.time.now + c.roundSeconds * 1000;
+    this.droneSpeedNow = c.droneSpeed;
+    this.speedLevel = 0;
+    this.pendingDrones = 0;
     this.physics.world.setBounds(0, 44, c.width, c.height - 44);
     this.add.grid(c.width / 2, c.height / 2, c.width, c.height, 40, 40,
       c.colors.background, 1, 0x24334b, 0.45);
@@ -29,9 +38,14 @@ class CoinDash extends Phaser.Scene {
       const angle = (35 + i * 105) * Math.PI / 180;
       drone.body.setVelocity(Math.cos(angle) * c.droneSpeed, Math.sin(angle) * c.droneSpeed);
     }
+    this.chaser = this.add.rectangle(c.width - 60, c.height - 60, 26, 26, CHASER_COLOR);
+    this.drones.add(this.chaser);
+    this.chaser.body.setCollideWorldBounds(true);
     this.physics.add.overlap(this.player, this.coin, () => {
       if (this.finished) return;
       this.score++;
+      // Spawn in update(), not here: don't add bodies in the middle of the physics step.
+      if (this.score % COINS_PER_NEW_DRONE === 0) this.pendingDrones++;
       this.placeCoin();
     });
     this.physics.add.overlap(this.player, this.drones, () => this.finish('A drone caught you!'));
@@ -94,8 +108,44 @@ class CoinDash extends Phaser.Scene {
     this.coin.body.reset(x, y);
   }
 
+  spawnDrone() {
+    const c = COIN_DASH;
+    let x, y;
+    do {
+      x = Phaser.Math.Between(25, c.width - 25);
+      y = Phaser.Math.Between(70, c.height - 25);
+    } while (Phaser.Math.Distance.Between(x, y, this.player.x, this.player.y) < DRONE_SPAWN_MIN_DISTANCE);
+    const drone = this.add.rectangle(x, y, 26, 26, c.colors.drone);
+    this.drones.add(drone);
+    drone.body.setCollideWorldBounds(true).setBounce(1, 1);
+    const angle = Phaser.Math.FloatBetween(0, Math.PI * 2);
+    drone.body.setVelocity(Math.cos(angle) * this.droneSpeedNow, Math.sin(angle) * this.droneSpeedNow);
+  }
+
+  updateDrones() {
+    // Round time = total minus remaining, so paused time (deadline is shifted on resume) doesn't count.
+    const elapsed = COIN_DASH.roundSeconds * 1000 - (this.deadline - this.time.now);
+    const level = Math.floor(elapsed / SPEEDUP_INTERVAL_MS);
+    while (this.speedLevel < level) {
+      this.speedLevel++;
+      this.droneSpeedNow *= SPEEDUP_FACTOR;
+      this.drones.getChildren().forEach((d) => {
+        if (d !== this.chaser) d.body.velocity.scale(SPEEDUP_FACTOR);
+      });
+    }
+    while (this.pendingDrones > 0) {
+      this.pendingDrones--;
+      this.spawnDrone();
+    }
+    // The chaser's velocity is recomputed every frame, so its speed follows droneSpeedNow.
+    const toPlayer = new Phaser.Math.Vector2(this.player.x - this.chaser.x, this.player.y - this.chaser.y)
+      .normalize().scale(this.droneSpeedNow * CHASER_SPEED_FACTOR);
+    this.chaser.body.setVelocity(toPlayer.x, toPlayer.y);
+  }
+
   update() {
     if (this.finished || this.paused) return;
+    this.updateDrones();
     const dx = Number(this.cursors.right.isDown || this.keys.D.isDown)
       - Number(this.cursors.left.isDown || this.keys.A.isDown);
     const dy = Number(this.cursors.down.isDown || this.keys.S.isDown)
