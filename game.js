@@ -6,6 +6,7 @@ class CoinDash extends Phaser.Scene {
     const c = COIN_DASH;
     this.score = 0;
     this.finished = false;
+    this.pulse = null;
     this.deadline = this.time.now + c.roundSeconds * 1000;
     this.physics.world.setBounds(0, 44, c.width, c.height - 44);
     this.add.grid(c.width / 2, c.height / 2, c.width, c.height, 40, 40,
@@ -29,12 +30,33 @@ class CoinDash extends Phaser.Scene {
     this.physics.add.overlap(this.player, this.coin, () => {
       if (this.finished) return;
       this.score++;
+      this.playCoinEffect(this.coin.x, this.coin.y);
       this.placeCoin();
     });
     this.physics.add.overlap(this.player, this.drones, () => this.finish('A drone caught you!'));
     this.cursors = this.input.keyboard.createCursorKeys();
     this.keys = this.input.keyboard.addKeys('W,A,S,D,R');
     this.input.keyboard.on('keydown-R', () => this.scene.restart());
+  }
+
+  playCoinEffect(x, y) {
+    const c = COIN_DASH, e = c.coinEffect;
+    const ring = this.add.circle(x, y, e.ringRadius).setStrokeStyle(e.ringStroke, c.colors.coin);
+    this.tweens.add({ targets: ring, scale: e.ringScale, alpha: 0, duration: e.ringMs,
+      ease: 'Cubic.easeOut', onComplete: () => ring.destroy() });
+    const flash = this.add.rectangle(c.width / 2, c.height / 2, c.width, c.height,
+      c.colors.coin, e.flashAlpha);
+    this.tweens.add({ targets: flash, alpha: 0, duration: e.flashMs,
+      onComplete: () => flash.destroy() });
+    // Pulse an outline, not the player: scaling the player would grow its arcade body.
+    if (this.pulse) { this.pulse.tween.stop(); this.pulse.shape.destroy(); }
+    const p = this.player;
+    const shape = this.add.rectangle(p.x, p.y, p.width, p.height)
+      .setStrokeStyle(e.pulseStroke, c.colors.player);
+    const tween = this.tweens.add({ targets: shape, scale: e.pulseScale, duration: e.pulseMs,
+      yoyo: true, ease: 'Sine.easeOut', onUpdate: () => shape.setPosition(p.x, p.y),
+      onComplete: () => { shape.destroy(); this.pulse = null; } });
+    this.pulse = { shape, tween };
   }
 
   placeCoin() {
