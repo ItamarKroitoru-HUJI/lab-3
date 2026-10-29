@@ -16,6 +16,9 @@ const GOLD_COIN_SCALE = 1.4;
 const COIN_WANDER_MS = 4000;           // play time before an uncollected coin jumps elsewhere
 const POPUP_RISE_PX = 30;
 const POPUP_MS = 500;
+const DASH_MS = 200;                   // length of the dash burst
+const DASH_SPEED_FACTOR = 3;           // dash speed as a multiple of player speed
+const DASH_COOLDOWN_MS = 1500;         // cooldown after a dash ends
 class CoinDash extends Phaser.Scene {
   constructor() { super('CoinDash'); }
 
@@ -35,10 +38,15 @@ class CoinDash extends Phaser.Scene {
     this.invulnMs = 0; // counted down in update(), so pause freezes it
     this.streak = 0;
     this.longestStreak = 0;
+    this.dashMs = 0;         // time left in the current dash; counted down in update()
+    this.dashCooldownMs = 0; // time left before the next dash; counted down in update()
+    this.dashQueued = false; // Shift pressed; consumed in update() once a direction is known
+    this.dashDir = new Phaser.Math.Vector2(0, 0);
     this.physics.world.setBounds(0, 44, c.width, c.height - 44);
     this.add.grid(c.width / 2, c.height / 2, c.width, c.height, 40, 40,
       c.colors.background, 1, 0x2a1f5c, 0.5);
     this.hud = this.add.text(18, 12, '', { font: '18px monospace', color: '#ffffff' });
+    this.dashHud = this.add.text(18, 34, 'Dash: ready', { font: '14px monospace', color: '#ffffff' });
     this.player = this.add.rectangle(c.width / 2, c.height / 2, 24, 24, c.colors.player);
     this.lastTrailAt = 0;
     this.physics.add.existing(this.player);
@@ -80,7 +88,10 @@ class CoinDash extends Phaser.Scene {
     this.keys = this.input.keyboard.addKeys('W,A,S,D,R');
     this.input.keyboard.on('keydown-R', () => this.scene.restart({ skipStart: true }));
     // Registering the keys makes Phaser ignore held-key auto-repeat, so holding P won't flicker.
-    this.input.keyboard.addKeys('P,ESC,SPACE');
+    this.input.keyboard.addKeys('P,ESC,SPACE,SHIFT');
+    this.input.keyboard.on('keydown-SHIFT', () => {
+      if (this.phase === 'playing' && !this.paused && !this.finished) this.dashQueued = true;
+    });
     this.input.keyboard.on('keydown-P', () => this.togglePause());
     this.input.keyboard.on('keydown-ESC', () => this.togglePause());
     this.input.keyboard.on('keydown-SPACE', () => {
@@ -314,7 +325,26 @@ class CoinDash extends Phaser.Scene {
       const toY = pointer.worldY - this.player.y;
       if (Math.hypot(toX, toY) > 6) direction.set(toX, toY);
     }
-    direction.normalize().scale(COIN_DASH.playerSpeed);
+    direction.normalize();
+    // Dash: Shift starts a burst in the current direction (nothing happens without one).
+    if (this.dashQueued && this.dashMs === 0 && this.dashCooldownMs === 0 && direction.lengthSq() > 0) {
+      this.dashMs = DASH_MS;
+      this.dashDir.copy(direction);
+    }
+    this.dashQueued = false;
+    let speed = COIN_DASH.playerSpeed;
+    if (this.dashMs > 0) {
+      this.dashMs = Math.max(0, this.dashMs - delta);
+      if (this.dashMs === 0) this.dashCooldownMs = DASH_COOLDOWN_MS;
+      direction.copy(this.dashDir); // the burst keeps its starting direction
+      speed *= DASH_SPEED_FACTOR;
+    } else if (this.dashCooldownMs > 0) {
+      this.dashCooldownMs = Math.max(0, this.dashCooldownMs - delta);
+    }
+    this.dashHud.setText(this.dashCooldownMs > 0
+      ? `Dash: ${(this.dashCooldownMs / 1000).toFixed(1)}s` : 'Dash: ready');
+    this.dashHud.setColor(this.dashCooldownMs > 0 ? '#ff657a' : '#ffffff');
+    direction.scale(speed);
     this.player.body.setVelocity(direction.x, direction.y);
     if (dx !== 0 || dy !== 0) this.spawnTrail();
     const seconds = this.secondsLeft();
