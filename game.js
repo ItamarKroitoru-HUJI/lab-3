@@ -18,6 +18,7 @@ class CoinDash extends Phaser.Scene {
     this.coin = this.add.circle(100, 100, 9, c.colors.coin);
     this.physics.add.existing(this.coin);
     this.coin.body.setCircle(9);
+    this.collected = 0;
     this.placeCoin();
     this.drones = this.physics.add.group();
     for (let i = 0; i < c.droneCount; i++) {
@@ -29,10 +30,11 @@ class CoinDash extends Phaser.Scene {
     }
     this.physics.add.overlap(this.player, this.coin, () => {
       if (this.finished) return;
-      const points = 1;
+      const points = this.coin.gold ? c.goldCoin.points : 1;
       this.score += points;
+      this.collected++;
       this.playCoinEffect(this.coin.x, this.coin.y);
-      this.floatText(this.coin.x, this.coin.y, `+${points}`, c.colors.coin);
+      this.floatText(this.coin.x, this.coin.y, `+${points}`, this.coin.fillColor);
       this.placeCoin();
     });
     this.physics.add.overlap(this.player, this.drones, () => this.finish('A drone caught you!'));
@@ -79,6 +81,8 @@ class CoinDash extends Phaser.Scene {
     } while (Phaser.Math.Distance.Between(x, y, this.player.x, this.player.y) < 60);
     this.coin.setPosition(x, y);
     this.coin.body.reset(x, y);
+    this.coin.gold = (this.collected + 1) % c.goldCoin.every === 0;
+    this.coin.setFillStyle(this.coin.gold ? c.colors.goldCoin : c.colors.coin);
   }
 
   update() {
