@@ -32,7 +32,7 @@ class CoinDash extends Phaser.Scene {
     this.add.grid(c.width / 2, c.height / 2, c.width, c.height, 40, 40,
       c.colors.background, 1, 0x2a1f5c, 0.5);
     this.hud = this.add.text(18, 12, '', { font: '18px monospace', color: '#ffffff' });
-    this.player = this.add.rectangle(c.width / 2, c.height / 2, 24, 24, c.colors.player).setDepth(2);
+    this.player = this.add.rectangle(c.width / 2, c.height / 2, 24, 24, c.colors.player);
     this.lastTrailAt = 0;
     this.physics.add.existing(this.player);
     this.player.body.setCollideWorldBounds(true);
@@ -121,8 +121,8 @@ class CoinDash extends Phaser.Scene {
     // Plain rectangles (no physics body) so trail pieces never collide with anything.
     if (this.time.now - this.lastTrailAt < 30) return;
     this.lastTrailAt = this.time.now;
-    const piece = this.add.rectangle(this.player.x, this.player.y, 14, 14, COIN_DASH.colors.player, 0.6)
-      .setDepth(1);
+    const piece = this.add.rectangle(this.player.x, this.player.y, 14, 14, COIN_DASH.colors.player, 0.6);
+    this.children.moveBelow(piece, this.player); // behind the player, under any overlay drawn later
     this.tweens.add({ targets: piece, alpha: 0, scale: 0.4, duration: 200, onComplete: () => piece.destroy() });
   }
 
