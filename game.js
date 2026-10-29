@@ -37,6 +37,18 @@ class CoinDash extends Phaser.Scene {
       this.floatText(this.coin.x, this.coin.y, `+${points}`, this.coin.fillColor);
       this.placeCoin();
     });
+    this.timeCoin = this.add.circle(0, 0, 9, c.colors.timeCoin);
+    this.physics.add.existing(this.timeCoin);
+    this.timeCoin.body.setCircle(9);
+    this.timeCoinTimer = null;
+    this.hideTimeCoin();
+    this.time.addEvent({ delay: c.timeCoin.checkMs, loop: true, callback: () => this.spawnTimeCoin() });
+    this.physics.add.overlap(this.player, this.timeCoin, () => {
+      if (this.finished) return;
+      this.deadline += c.timeCoin.seconds * 1000;
+      this.floatText(this.timeCoin.x, this.timeCoin.y, `+${c.timeCoin.seconds}s`, c.colors.timeCoin);
+      this.hideTimeCoin();
+    });
     this.physics.add.overlap(this.player, this.drones, () => this.finish('A drone caught you!'));
     this.cursors = this.input.keyboard.createCursorKeys();
     this.keys = this.input.keyboard.addKeys('W,A,S,D,R');
@@ -71,14 +83,36 @@ class CoinDash extends Phaser.Scene {
       ease: 'Cubic.easeOut', onComplete: () => label.destroy() });
   }
 
-  placeCoin() {
+  spawnTimeCoin() {
     const c = COIN_DASH;
-    // Avoid spawning the next coin directly underneath the player.
+    if (this.finished || this.timeCoin.visible || Math.random() > c.timeCoin.chance) return;
+    const { x, y } = this.randomSpot();
+    this.timeCoin.setPosition(x, y).setVisible(true);
+    this.timeCoin.body.reset(x, y);
+    this.timeCoin.body.enable = true;
+    this.timeCoinTimer = this.time.delayedCall(c.timeCoin.lifeMs, () => this.hideTimeCoin());
+  }
+
+  hideTimeCoin() {
+    if (this.timeCoinTimer) this.timeCoinTimer.remove();
+    this.timeCoin.setVisible(false);
+    this.timeCoin.body.enable = false;
+  }
+
+  randomSpot() {
+    const c = COIN_DASH;
+    // Avoid spawning a coin directly underneath the player.
     let x, y;
     do {
       x = Phaser.Math.Between(25, c.width - 25);
       y = Phaser.Math.Between(70, c.height - 25);
     } while (Phaser.Math.Distance.Between(x, y, this.player.x, this.player.y) < 60);
+    return { x, y };
+  }
+
+  placeCoin() {
+    const c = COIN_DASH;
+    const { x, y } = this.randomSpot();
     this.coin.setPosition(x, y);
     this.coin.body.reset(x, y);
     this.coin.gold = (this.collected + 1) % c.goldCoin.every === 0;
