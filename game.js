@@ -21,9 +21,10 @@ class CoinDash extends Phaser.Scene {
     this.pendingDrones = 0;
     this.physics.world.setBounds(0, 44, c.width, c.height - 44);
     this.add.grid(c.width / 2, c.height / 2, c.width, c.height, 40, 40,
-      c.colors.background, 1, 0x24334b, 0.45);
+      c.colors.background, 1, 0x2a1f5c, 0.5);
     this.hud = this.add.text(18, 12, '', { font: '18px monospace', color: '#ffffff' });
-    this.player = this.add.rectangle(c.width / 2, c.height / 2, 24, 24, c.colors.player);
+    this.player = this.add.rectangle(c.width / 2, c.height / 2, 24, 24, c.colors.player).setDepth(2);
+    this.lastTrailAt = 0;
     this.physics.add.existing(this.player);
     this.player.body.setCollideWorldBounds(true);
     this.coin = this.add.circle(100, 100, 9, c.colors.coin);
@@ -48,7 +49,11 @@ class CoinDash extends Phaser.Scene {
       if (this.score % COINS_PER_NEW_DRONE === 0) this.pendingDrones++;
       this.placeCoin();
     });
-    this.physics.add.overlap(this.player, this.drones, () => this.finish('A drone caught you!'));
+    this.physics.add.overlap(this.player, this.drones, () => {
+      if (this.finished) return;
+      this.hitFeedback();
+      this.finish('A drone caught you!');
+    });
     this.cursors = this.input.keyboard.createCursorKeys();
     this.keys = this.input.keyboard.addKeys('W,A,S,D,R');
     this.input.keyboard.on('keydown-R', () => this.scene.restart());
@@ -56,6 +61,20 @@ class CoinDash extends Phaser.Scene {
     this.input.keyboard.addKeys('P,ESC');
     this.input.keyboard.on('keydown-P', () => this.togglePause());
     this.input.keyboard.on('keydown-ESC', () => this.togglePause());
+  }
+
+  hitFeedback() {
+    this.cameras.main.shake(250, 0.012);
+    this.cameras.main.flash(150, 255, 40, 70);
+  }
+
+  spawnTrail() {
+    // Plain rectangles (no physics body) so trail pieces never collide with anything.
+    if (this.time.now - this.lastTrailAt < 30) return;
+    this.lastTrailAt = this.time.now;
+    const piece = this.add.rectangle(this.player.x, this.player.y, 14, 14, COIN_DASH.colors.player, 0.6)
+      .setDepth(1);
+    this.tweens.add({ targets: piece, alpha: 0, scale: 0.4, duration: 200, onComplete: () => piece.destroy() });
   }
 
   togglePause() {
@@ -160,6 +179,7 @@ class CoinDash extends Phaser.Scene {
     }
     direction.normalize().scale(COIN_DASH.playerSpeed);
     this.player.body.setVelocity(direction.x, direction.y);
+    if (dx !== 0 || dy !== 0) this.spawnTrail();
     const seconds = Math.max(0, Math.ceil((this.deadline - this.time.now) / 1000));
     const best = Math.max(this.bestScore, this.score);
     this.hud.setText(`Coins: ${this.score}     Best: ${best}     Time: ${seconds}s`);
