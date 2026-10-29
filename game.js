@@ -1,5 +1,8 @@
 /* global Phaser, COIN_DASH */
 const BEST_SCORE_KEY = 'coinDash.bestScore';
+const TOP_SCORES_KEY = 'coinDash.topScores';
+const START_LIVES = 3;
+const INVULN_MS = 1500;
 class CoinDash extends Phaser.Scene {
   constructor() { super('CoinDash'); }
 
@@ -9,6 +12,10 @@ class CoinDash extends Phaser.Scene {
     this.bestScore = this.loadBestScore();
     this.finished = false;
     this.paused = false;
+    this.lives = START_LIVES;
+    this.invulnMs = 0; // counted down in update(), so pause freezes it
+    this.streak = 0;
+    this.longestStreak = 0;
     this.deadline = this.time.now + c.roundSeconds * 1000;
     this.physics.world.setBounds(0, 44, c.width, c.height - 44);
     this.add.grid(c.width / 2, c.height / 2, c.width, c.height, 40, 40,
@@ -32,9 +39,11 @@ class CoinDash extends Phaser.Scene {
     this.physics.add.overlap(this.player, this.coin, () => {
       if (this.finished) return;
       this.score++;
+      this.streak++;
+      this.longestStreak = Math.max(this.longestStreak, this.streak);
       this.placeCoin();
     });
-    this.physics.add.overlap(this.player, this.drones, () => this.finish('A drone caught you!'));
+    this.physics.add.overlap(this.player, this.drones, () => this.hitByDrone());
     this.cursors = this.input.keyboard.createCursorKeys();
     this.keys = this.input.keyboard.addKeys('W,A,S,D,R');
     this.input.keyboard.on('keydown-R', () => this.scene.restart());
@@ -67,6 +76,46 @@ class CoinDash extends Phaser.Scene {
     }
   }
 
+  hitByDrone() {
+    if (this.finished || this.paused || this.invulnMs > 0) return;
+    this.lives--;
+    this.streak = 0;
+    if (this.lives <= 0) {
+      this.renderHud(this.secondsLeft());
+      this.finish('A drone caught you!');
+      return;
+    }
+    this.invulnMs = INVULN_MS;
+    this.renderHud(this.secondsLeft());
+  }
+
+  secondsLeft() {
+    return Math.max(0, Math.ceil((this.deadline - this.time.now) / 1000));
+  }
+
+  renderHud(seconds) {
+    const best = Math.max(this.bestScore, this.score);
+    this.hud.setText(
+      `Coins: ${this.score}   Lives: ${this.lives}   Best: ${best}   Time: ${seconds}s`);
+  }
+
+  loadTopScores() {
+    try {
+      const list = JSON.parse(window.localStorage.getItem(TOP_SCORES_KEY));
+      if (!Array.isArray(list)) return [];
+      return list.filter((n) => Number.isSafeInteger(n) && n >= 0)
+        .sort((a, b) => b - a).slice(0, 5);
+    } catch (e) {
+      return [];
+    }
+  }
+
+  saveTopScores(list) {
+    try {
+      window.localStorage.setItem(TOP_SCORES_KEY, JSON.stringify(list));
+    } catch (e) { /* storage blocked or full: keep playing without persistence */ }
+  }
+
   loadBestScore() {
     try {
       const best = Number(window.localStorage.getItem(BEST_SCORE_KEY));
@@ -94,17 +143,20 @@ class CoinDash extends Phaser.Scene {
     this.coin.body.reset(x, y);
   }
 
-  update() {
+  update(time, delta) {
     if (this.finished || this.paused) return;
+    if (this.invulnMs > 0) {
+      this.invulnMs = Math.max(0, this.invulnMs - delta);
+      this.player.setAlpha(this.invulnMs > 0 && Math.floor(this.invulnMs / 100) % 2 ? 0.25 : 1);
+    }
     const dx = Number(this.cursors.right.isDown || this.keys.D.isDown)
       - Number(this.cursors.left.isDown || this.keys.A.isDown);
     const dy = Number(this.cursors.down.isDown || this.keys.S.isDown)
       - Number(this.cursors.up.isDown || this.keys.W.isDown);
     const direction = new Phaser.Math.Vector2(dx, dy).normalize().scale(COIN_DASH.playerSpeed);
     this.player.body.setVelocity(direction.x, direction.y);
-    const seconds = Math.max(0, Math.ceil((this.deadline - this.time.now) / 1000));
-    const best = Math.max(this.bestScore, this.score);
-    this.hud.setText(`Coins: ${this.score}     Best: ${best}     Time: ${seconds}s`);
+    const seconds = this.secondsLeft();
+    this.renderHud(seconds);
     if (seconds === 0) this.finish('Time is up!');
   }
 
@@ -112,14 +164,29 @@ class CoinDash extends Phaser.Scene {
     if (this.finished) return;
     this.finished = true;
     this.physics.pause();
+    this.player.setAlpha(1);
     const c = COIN_DASH;
     const isNewBest = this.score > this.loadBestScore();
     if (isNewBest) this.saveBestScore(this.score);
-    this.add.rectangle(c.width / 2, c.height / 2, 460, isNewBest ? 190 : 150, 0x0a1120, 0.95);
-    this.add.text(c.width / 2, c.height / 2,
-      `${reason}\n${this.score} coins collected\nPress R to try again${isNewBest ? '\nNew best!' : ''}`,
-      { font: '24px monospace', color: '#ffffff', align: 'center', lineSpacing: 12 }
-    ).setOrigin(0.5);
+    // The deadline shifts on resume, so remaining time excludes any paused time.
+    const remainingMs = Math.max(0, Math.min(c.roundSeconds * 1000, this.deadline - this.time.now));
+    const playedSeconds = (c.roundSeconds * 1000 - remainingMs) / 1000;
+    const perSecond = playedSeconds > 0 ? (this.score / playedSeconds).toFixed(1) : '0.0';
+    const top = this.loadTopScores();
+    top.push(this.score);
+    top.sort((a, b) => b - a);
+    top.splice(5);
+    this.saveTopScores(top);
+    const topLines = top.map((n, i) => `${i + 1}. ${n}`).join('\n');
+    this.add.rectangle(c.width / 2, c.height / 2, 460, 410, 0x0a1120, 0.95);
+    const head = this.add.text(c.width / 2, c.height / 2 - 192,
+      `${reason}\n${this.score} coins collected${isNewBest ? '\nNew best!' : ''}`,
+      { font: '24px monospace', color: '#ffffff', align: 'center', lineSpacing: 8 }
+    ).setOrigin(0.5, 0);
+    this.add.text(c.width / 2, head.y + head.height + 8,
+      `Coins/sec: ${perSecond}\nLongest streak: ${this.longestStreak}\n\nTop 5\n${topLines}\n\nPress R to try again`,
+      { font: '16px monospace', color: '#ffffff', align: 'center', lineSpacing: 4 }
+    ).setOrigin(0.5, 0);
   }
 }
 window.coinDashGame = new Phaser.Game({
